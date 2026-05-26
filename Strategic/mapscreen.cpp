@@ -15325,11 +15325,16 @@ BOOLEAN CanChangeDestinationForCharSlot( INT16 bCharNumber, BOOLEAN fShowErrorMe
 	if ( gCharactersList[ bCharNumber ].fValid == FALSE )
 		return (FALSE);
 
+	// A slot can be flagged valid while its soldier was already torn down (e.g. an
+	// en-route helicopter casualty) before ReBuildCharactersList() ran. These predicates
+	// run every mapscreen frame, so bail gracefully instead of asserting on a dead slot.
+	if ( gCharactersList[ bCharNumber ].usSolID == NOBODY )
+		return( FALSE );
+
 	SOLDIERTYPE* pSoldier = gCharactersList[ bCharNumber ].usSolID;
 
-	// valid soldier?
-	Assert( pSoldier );
-	Assert( pSoldier->bActive );
+	if ( pSoldier == NULL || !pSoldier->bActive )
+		return( FALSE );
 
 	if ( CanEntireMovementGroupMercIsInMove( pSoldier, &bErrorNumber ) )
 	{
@@ -15358,11 +15363,16 @@ BOOLEAN CanExtendContractForCharSlot( INT16 bCharNumber )
 	if ( gCharactersList[ bCharNumber ].fValid == FALSE )
 		return (FALSE);
 
+	// A slot can be flagged valid while its soldier was already torn down (e.g. an
+	// en-route helicopter casualty) before ReBuildCharactersList() ran. These predicates
+	// run every mapscreen frame, so bail gracefully instead of asserting on a dead slot.
+	if ( gCharactersList[ bCharNumber ].usSolID == NOBODY )
+		return( FALSE );
+
 	SOLDIERTYPE* pSoldier = gCharactersList[ bCharNumber ].usSolID;
 
-	// valid soldier?
-	Assert( pSoldier );
-	Assert( pSoldier->bActive );
+	if ( pSoldier == NULL || !pSoldier->bActive )
+		return( FALSE );
 
 	// if a vehicle, in transit, or a POW
 	if( /*( pSoldier->flags.uiStatusFlags & SOLDIER_VEHICLE ) ||*/
@@ -15402,9 +15412,10 @@ BOOLEAN CanChangeSleepStatusForCharSlot( INT16 bCharNumber )
 
 BOOLEAN CanChangeSleepStatusForSoldier( SOLDIERTYPE *pSoldier )
 {
-	// valid soldier?
-	Assert( pSoldier );
-	Assert( pSoldier->bActive );
+	// the soldier may already have been torn down (e.g. an en-route helicopter casualty)
+	// while a stale team-panel slot still points at it - bail gracefully instead of asserting
+	if ( pSoldier == NULL || !pSoldier->bActive )
+		return( FALSE );
 
 	// if a vehicle, robot, in transit, or a POW
 	if( ( pSoldier->flags.uiStatusFlags & SOLDIER_VEHICLE ) || AM_A_ROBOT( pSoldier ) ||
