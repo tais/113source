@@ -72,12 +72,49 @@ jobs:
       - uses: microsoft/setup-msbuild@v2
         with:
           msbuild-architecture: x86
+
+      # Windows XP support requires the v141_xp toolset: MSVC v141 (the last toolset
+      # to support XP) plus the Windows 7.1A SDK that ships with the "WinXP" component.
+      # windows-latest (VS 2022) does not include these by default, so install them.
+      - name: Install v141_xp toolset (VC++ v141 + Windows XP support)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vsPath = & $vswhere -latest -property installationPath
+          $setup = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\setup.exe"
+          $p = Start-Process -FilePath $setup -Wait -PassThru -ArgumentList @(
+            'modify',
+            '--installPath', "`"$vsPath`"",
+            '--add', 'Microsoft.VisualStudio.Component.VC.v141.x86.x64',
+            '--add', 'Microsoft.VisualStudio.Component.WinXP',
+            '--quiet', '--norestart', '--nocache'
+          )
+          if ($p.ExitCode -notin 0, 3010) {
+            throw "Visual Studio installer 'modify' failed with exit code $($p.ExitCode)"
+          }
+
+      # 14.16 == MSVC v141, the last toolset version that targets Windows XP.
       - uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x86
+          toolset: 14.16
+
+      - name: Configure Windows XP SDK (7.1A) environment
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sdk = "${env:ProgramFiles(x86)}\Microsoft SDKs\Windows\v7.1A"
+          if (-not (Test-Path "$sdk\Include")) {
+            throw "Windows SDK 7.1A not found at $sdk - the WinXP support component may not have installed."
+          }
+          # Prepend the XP-era SDK so its headers/libs take precedence over the default Windows 10 SDK.
+          "INCLUDE=$sdk\Include;$env:INCLUDE" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "LIB=$sdk\Lib;$env:LIB"             | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
       - name: Prepare build
         run: |
-          cmake -S . -B build -GNinja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DLanguages="$Env:JA2Language" -DApplications="$Env:JA2Application"
+          cmake -S . -B build -GNinja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DTARGET_WINXP=ON -DLanguages="$Env:JA2Language" -DApplications="$Env:JA2Application"
       - name: Build
         run: |
           cmake --build build/ -- -v

@@ -26,6 +26,16 @@ if(ADDRESS_SANITIZER)
   add_compile_options($<IF:$<OR:$<CONFIG:Debug>,$<CONFIG:RelWithDebInfo>>,-fsanitize=address,>)
 endif()
 
+# Windows XP (NT 5.01) compatibility. Requires building with the v141_xp toolset
+# (MSVC v141 + the Windows 7.1A SDK). Leave OFF for normal/local builds.
+option(TARGET_WINXP "Build for Windows XP (NT 5.01) compatibility (requires the v141_xp toolset)" OFF)
+if(TARGET_WINXP)
+  message(STATUS "Configuring for Windows XP (NT 5.01) compatibility")
+  # Mirrors the v141_xp platform toolset so the Windows 7.1A SDK headers expose
+  # only XP-era APIs (avoids importing Vista+ entry points such as IsThreadAFiber).
+  add_compile_definitions(_USING_V110_SDK71_)
+endif()
+
 if(MSVC)
   add_compile_options("/wd4838") # silence implicit narrowing conversion warnings
 endif()
@@ -145,6 +155,10 @@ foreach(app IN LISTS ApplicationTargets)
     )
     target_link_libraries(${exe} PRIVATE ${Ja2_Libraries} $<IF:${usingMsBuild},legacy_stdio_definitions.lib,>)
     target_link_options(${exe} PRIVATE $<IF:${usingMsBuild},/SAFESEH:NO,>)
+    if(TARGET_WINXP)
+      # Stamp the PE header's minimum-OS field so the Windows XP loader accepts the binary.
+      target_link_options(${exe} PRIVATE "/SUBSYSTEM:WINDOWS,5.01")
+    endif()
     target_compile_definitions(${exe} PRIVATE ${compilationFlags} ${debugFlags})
 
     # language library for an application, e.g. JA2MAPEDITOR_ENGLISH_i18n
