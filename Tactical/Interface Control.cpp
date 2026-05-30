@@ -42,6 +42,10 @@
 	#include "GameSettings.h"
 	#include "Explosion Control.h"		// added by Flugente
 
+#include "Items.h"					// Tais: for HasAttachmentOfClass() - weapon aiming laser line
+#include "Item Types.h"				// Tais: for AC_LASER / IC_GUN / Item[] / HANDPOS - weapon aiming laser line
+#include "Animation Control.h"		// Tais: for gAnimControl / PTR_STANDING|CROUCHED|PRONE stance check - weapon aiming laser line
+
 #include "Text.h"
 
 #ifdef JA2UB
@@ -573,6 +577,120 @@ void RenderRubberBanding( )
 	UnLockVideoSurface( FRAME_BUFFER );
 }
 
+// Tais: draw a weapon-aiming laser line for the selected merc.
+// Shown only while the merc is aiming a gun that has a laser sight attached.
+// The line runs from roughly the merc's weapon (stance-adjusted, nudged toward the
+// muzzle) to the tile/target currently under the targeting cursor.
+// Modelled on RenderRubberBanding() above: draw straight to the frame buffer, then
+// register the line's bounding box as a background rect so the engine repaints over
+// it next frame - otherwise the line would leave a smear trail.
+void RenderWeaponAimingLaser( void )
+{
+	// stance-based pixel offsets to raise the origin to roughly weapon height (tunable by eye)
+	const INT16		MUZZLE_HEIGHT_STAND		= 45;
+	const INT16		MUZZLE_HEIGHT_CROUCH	= 28;
+	const INT16		MUZZLE_HEIGHT_PRONE		= 12;
+	const INT16		TARGET_BODY_HEIGHT		= 35;	// raise the endpoint to torso when aiming at a person
+	const FLOAT		MUZZLE_FORWARD			= 12.0f;	// push the origin this many pixels toward the target
+
+	// only in the tactical viewport
+	if ( guiTacticalInterfaceFlags & INTERFACE_MAPSCREEN )
+		return;
+
+	// coordinates are unreliable mid-scroll, and the viewport fully redraws then anyway
+	if ( gfScrollPending || gfScrollInertia )
+		return;
+
+	// only while actively aiming a weapon
+	if ( gCurrentUIMode != ACTION_MODE && gCurrentUIMode != CONFIRM_ACTION_MODE )
+		return;
+
+	// need a valid selected merc that is in this sector
+	SOLDIERTYPE* pSoldier = NULL;
+	if ( !GetSoldier( &pSoldier, gusSelectedSoldier ) || pSoldier == NULL || !pSoldier->bInSector )
+		return;
+
+	// must be holding a gun that has a laser sight attached
+	OBJECTTYPE* pObj = &pSoldier->inv[HANDPOS];
+	if ( !pObj->exists() )
+		return;
+	if ( !( Item[pObj->usItem].usItemClass & IC_GUN ) )
+		return;
+	if ( !HasAttachmentOfClass( pObj, AC_LASER ) )
+		return;
+
+	// figure out what we're pointing at - follow the cursor, snapping to a merc when hovering over one
+	INT32	sTargetGridNo = 0;
+	BOOLEAN	fTargetIsPerson = FALSE;
+	if ( gfUIFullTargetFound )
+	{
+		// same safe pattern the targeting cursor uses (see HandleActivatedTargetCursor)
+		sTargetGridNo = gusUIFullTargetID->sGridNo;
+		fTargetIsPerson = TRUE;
+	}
+	else if ( !GetMouseMapPos( &sTargetGridNo ) )
+	{
+		return;
+	}
+
+	if ( TileIsOutOfBounds( sTargetGridNo ) || sTargetGridNo == pSoldier->sGridNo )
+		return;
+
+	// --- compute screen endpoints ---
+	INT16	sStartX, sStartY, sEndX, sEndY;
+
+	// origin: the merc's own tile, raised to approximate weapon height for the current stance
+	GetGridNoScreenXY( pSoldier->sGridNo, &sStartX, &sStartY );
+
+	INT16 sMuzzleHeight = MUZZLE_HEIGHT_STAND;
+	if ( PTR_CROUCHED )
+		sMuzzleHeight = MUZZLE_HEIGHT_CROUCH;
+	else if ( PTR_PRONE )
+		sMuzzleHeight = MUZZLE_HEIGHT_PRONE;
+	sStartY -= sMuzzleHeight;
+
+	// target end: the tile under the cursor; raise to torso height when aiming at a person
+	GetGridNoScreenXY( sTargetGridNo, &sEndX, &sEndY );
+	if ( fTargetIsPerson )
+		sEndY -= TARGET_BODY_HEIGHT;
+
+	// nudge the origin a few pixels toward the target so the line leaves the gun, not the body centre
+	{
+		FLOAT dx = (FLOAT)( sEndX - sStartX );
+		FLOAT dy = (FLOAT)( sEndY - sStartY );
+		FLOAT dLen = (FLOAT)sqrt( dx * dx + dy * dy );
+		if ( dLen > 1.0f )
+		{
+			sStartX += (INT16)( MUZZLE_FORWARD * dx / dLen );
+			sStartY += (INT16)( MUZZLE_FORWARD * dy / dLen );
+		}
+	}
+
+	// --- draw ---
+	UINT32	uiDestPitchBYTES;
+	UINT8*	pDestBuf = LockVideoSurface( FRAME_BUFFER, &uiDestPitchBYTES );
+	SetClippingRegionAndImageWidth( uiDestPitchBYTES, gsVIEWPORT_START_X, gsVIEWPORT_WINDOW_START_Y, gsVIEWPORT_END_X, gsVIEWPORT_WINDOW_END_Y );
+
+	UINT16 usLaserColor = Get16BPPColor( FROMRGB( 255, 0, 0 ) );
+	LineDraw( TRUE, sStartX, sStartY, sEndX, sEndY, usLaserColor, pDestBuf );
+
+	UnLockVideoSurface( FRAME_BUFFER );
+
+	// register the line's bounding box (clamped to the viewport) so the background gets
+	// restored over it next frame - this is what stops the line from smearing
+	INT32 xl = max( (INT32)gsVIEWPORT_START_X,        (INT32)min( sStartX, sEndX ) );
+	INT32 xr = min( (INT32)gsVIEWPORT_END_X,          (INT32)max( sStartX, sEndX ) );
+	INT32 yl = max( (INT32)gsVIEWPORT_WINDOW_START_Y, (INT32)min( sStartY, sEndY ) );
+	INT32 yr = min( (INT32)gsVIEWPORT_WINDOW_END_Y,   (INT32)max( sStartY, sEndY ) );
+
+	if ( xr > xl && yr > yl )
+	{
+		INT32 iBack = RegisterBackgroundRect( BGND_FLAG_SINGLE, NULL, (INT16)xl, (INT16)yl, (INT16)( xr + 1 ), (INT16)( yr + 1 ) );
+		if ( iBack != -1 )
+			SetBackgroundRectFilled( iBack );
+	}
+}
+
 // Flugente: draw moving circles around a gridno. This is used to warn the player of impending explosions
 void DrawExplosionWarning( INT32 sGridno, INT8 sLevel, INT8 sDelay )
 {
@@ -948,6 +1066,9 @@ void RenderTopmostTacticalInterface( )
 	EndViewportOverlays( );
 		
 	RenderRubberBanding( );
+
+	// Tais: weapon aiming laser line (only shows for a gun with a laser sight attached)
+	RenderWeaponAimingLaser( );
 
 	if ( !gfInItemPickupMenu && gpItemPointer == NULL )
 	{
