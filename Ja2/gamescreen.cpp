@@ -835,17 +835,25 @@ UINT32	MainGameScreenHandle(void)
 	PrintNetworkInfo();
 	#endif
 
-	// Render Interface
-	RenderTopmostTacticalInterface( );
-
-	// Tactical zoom-in: magnify the fully-composited world viewport (world + every world-anchored
-	// overlay drawn by RenderWorld and RenderTopmostTacticalInterface) in place. Runs after all
-	// world-anchored drawing and before the screen-anchored chrome (radar, messages) below, so
-	// only the world is scaled while the interface stays crisp at native resolution.
+	// Render Interface. While zoomed, cursor-following overlays drawn here (item-pool tooltips,
+	// hover tooltips) live in the viewport and would be flung off-cursor by the magnify, so
+	// pre-distort the mouse position around this pass so they land back under the real cursor.
 	if ( gsTacticalZoomLevel > 0 )
 	{
+		INT16 sSavedMouseX, sSavedMouseY;
+		ZoomCompensateMouseBegin( &sSavedMouseX, &sSavedMouseY );
+		RenderTopmostTacticalInterface( );
+		ZoomCompensateMouseEnd( sSavedMouseX, sSavedMouseY );
+
+		// Magnify the fully-composited world viewport (world + every world-anchored overlay) in
+		// place. Runs after all world-anchored drawing and before the screen-anchored chrome
+		// (radar, messages) below, so only the world is scaled; the interface stays crisp.
 		ApplyTacticalZoom( );
 		InvalidateScreen( );	// scaled viewport breaks 1:1 dirty-rect copies -> force a full present
+	}
+	else
+	{
+		RenderTopmostTacticalInterface( );
 	}
 
 #ifdef JA2TESTVERSION

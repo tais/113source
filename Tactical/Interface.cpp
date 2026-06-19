@@ -2629,6 +2629,11 @@ BOOLEAN DrawCTHIndicator()
 	sStartScreenX = (INT16)MousePos.x - 1;	// sevenfm: fix (-1) for cursor mismatch
 	sStartScreenY = (INT16)MousePos.y - 1;
 
+	// Tactical zoom: the reticle is a cursor-anchored frame-buffer overlay that reads the raw Win32
+	// cursor (GetCursorPos), so the gamescreen mouse-global wrap can't reach it. Pre-distort its
+	// anchor about the viewport centre so it tracks the magnified world after ApplyTacticalZoom.
+	ZoomCompensateScreenPoint( &sStartScreenX, &sStartScreenY );
+
 	// Define regions for the various indicators. We need to do this now because the Aperture Circles will want to
 	// avoid being drawn within these regions, otherwise they might make them harder to see.
 

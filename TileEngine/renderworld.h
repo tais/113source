@@ -120,6 +120,14 @@ BOOLEAN EnsureZoomScratchSurface( void );
 // Release the scratch surface (called when zoom returns to 0 / on teardown).
 void    FreeZoomScratchSurface( void );
 
+// Pre-distort a screen point about the viewport centre by den/num so that a cursor-anchored
+// overlay drawn at it lands back under the true cursor after ApplyTacticalZoom magnifies the
+// viewport. No-op when not zoomed. Used to keep tooltips / the NCTH reticle on the cursor.
+void    ZoomCompensateScreenPoint( INT16 *psX, INT16 *psY );
+// Save + pre-distort the global mouse position around a cursor-anchored render pass, then restore.
+void    ZoomCompensateMouseBegin( INT16 *psSavedX, INT16 *psSavedY );
+void    ZoomCompensateMouseEnd( INT16 sSavedX, INT16 sSavedY );
+
 // CURRENT VIEWPORT IN WORLD COORDS
 extern INT16 gsTopLeftWorldX;
 extern INT16 gsTopLeftWorldY;

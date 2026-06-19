@@ -7,6 +7,7 @@
 	#include "renderworld.h"
 	#include "sysutil.h"
 	#include "vobject_blitters.h"
+	#include "input.h"	// gusMouseXPos / gusMouseYPos for tactical-zoom cursor compensation
 	#include "DEBUG.H"
 	#include "WCheck.h"
 	#include "worldman.h"
@@ -571,6 +572,40 @@ void ApplyTacticalZoom( void )
 	// 2) Copy the magnified image (1:1) back over the viewport. Everything below gsVIEWPORT_END_Y
 	//    (the interface panel) is untouched, so the UI stays at native scale.
 	BltStretchVideoSurface( FRAME_BUFFER, guiZoomScratchSurface, 0, 0, 0, &ScratchFull, &ViewportRect );
+}
+
+// ApplyTacticalZoom magnifies the whole viewport about its centre by num/den. A cursor-anchored
+// overlay (tooltip, NCTH reticle) drawn at the true cursor M would therefore be flung away from it.
+// Pre-distorting its anchor to P = C + (M - C)*den/num makes the magnify land it back on M.
+void ZoomCompensateScreenPoint( INT16 *psX, INT16 *psY )
+{
+	if ( gsTacticalZoomLevel <= 0 )
+		return;
+
+	{
+		INT32 iNum = TacticalZoomNum();
+		INT32 iDen = TacticalZoomDen();
+		// Absolute-screen centre == the viewport-centre pivot used by ApplyTacticalZoom
+		// (gsVIEWPORT_START_X/Y are 0, so this equals the (END-START)/2 used elsewhere).
+		INT16 sCx = (INT16)( ( gsVIEWPORT_START_X + gsVIEWPORT_END_X ) / 2 );
+		INT16 sCy = (INT16)( ( gsVIEWPORT_START_Y + gsVIEWPORT_END_Y ) / 2 );
+
+		*psX = (INT16)( sCx + ( (INT32)( *psX - sCx ) * iDen ) / iNum );
+		*psY = (INT16)( sCy + ( (INT32)( *psY - sCy ) * iDen ) / iNum );
+	}
+}
+
+void ZoomCompensateMouseBegin( INT16 *psSavedX, INT16 *psSavedY )
+{
+	*psSavedX = gusMouseXPos;
+	*psSavedY = gusMouseYPos;
+	ZoomCompensateScreenPoint( &gusMouseXPos, &gusMouseYPos );
+}
+
+void ZoomCompensateMouseEnd( INT16 sSavedX, INT16 sSavedY )
+{
+	gusMouseXPos = sSavedX;
+	gusMouseYPos = sSavedY;
 }
 
 SGPRect		gSelectRegion;
