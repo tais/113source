@@ -529,7 +529,7 @@ void FreeZoomScratchSurface( void )
 // exactly under the cursor -> no offset. No-op at zoom level 0.
 void ApplyTacticalZoom( void )
 {
-	INT32	iNum, iDen, iVpW, iVpH, iSubW, iSubH;
+	INT32	iNum, iDen, iCx, iCy, iDstW, iDstH;
 	SGPRect	SrcSub, ScratchFull, ViewportRect;
 
 	if ( gsTacticalZoomLevel <= 0 )
@@ -541,36 +541,43 @@ void ApplyTacticalZoom( void )
 	iNum = TacticalZoomNum();
 	iDen = TacticalZoomDen();
 
-	iVpW = gsVIEWPORT_END_X - gsVIEWPORT_START_X;
-	iVpH = gsVIEWPORT_END_Y - gsVIEWPORT_START_Y;
+	// Magnify pivot == the world-render centre and the mouse-picking centre, so the tile under the
+	// cursor magnifies back to exactly under the cursor. Both centre on (gsVIEWPORT_END-START)/2
+	// (renderworld.cpp:1791 etc, Isometric Utils.cpp), so we must NOT move the pivot.
+	iCx = ( gsVIEWPORT_START_X + gsVIEWPORT_END_X ) / 2;
+	iCy = ( gsVIEWPORT_START_Y + gsVIEWPORT_END_Y ) / 2;
 
-	// Centred source sub-rectangle of the rendered viewport, shrunk by den/num.
-	iSubW = iVpW * iDen / iNum;
-	iSubH = iVpH * iDen / iNum;
-
-	// Centred sub-rect of the FRAME_BUFFER viewport (DirectDraw rects: right/bottom EXCLUSIVE).
-	SrcSub.iLeft   = gsVIEWPORT_START_X + ( iVpW - iSubW ) / 2;
-	SrcSub.iTop    = gsVIEWPORT_START_Y + ( iVpH - iSubH ) / 2;
-	SrcSub.iRight  = SrcSub.iLeft + iSubW;
-	SrcSub.iBottom = SrcSub.iTop  + iSubH;
-
-	// The whole scratch surface ( == viewport size ).
-	ScratchFull.iLeft   = 0;
-	ScratchFull.iTop    = 0;
-	ScratchFull.iRight  = iVpW;
-	ScratchFull.iBottom = iVpH;
-
-	// The on-screen viewport region inside the FRAME_BUFFER.
+	// Destination = the actually-rendered world window. Clamp the bottom to gsVIEWPORT_WINDOW_END_Y,
+	// which sits ABOVE gsVIEWPORT_END_Y when a tall interface panel (e.g. the inventory) is open and
+	// is where CalcRenderParameters clips the world. This stops the magnify reading into / overwriting
+	// that panel. In the common case gsVIEWPORT_WINDOW_END_Y == gsVIEWPORT_END_Y and this is a no-op.
 	ViewportRect.iLeft   = gsVIEWPORT_START_X;
 	ViewportRect.iTop    = gsVIEWPORT_START_Y;
-	ViewportRect.iRight  = gsVIEWPORT_START_X + iVpW;
-	ViewportRect.iBottom = gsVIEWPORT_START_Y + iVpH;
+	ViewportRect.iRight  = gsVIEWPORT_END_X;
+	ViewportRect.iBottom = gsVIEWPORT_WINDOW_END_Y;
 
-	// 1) Magnify the centred sub-rect of the world up into the scratch surface (DD hardware stretch).
+	// Source = pre-image of the destination under the magnify ( S = C + (P-C)*num/den, so
+	// P = C + (S-C)*den/num ). Computed from the pivot, so it is asymmetric about the centre when the
+	// window bottom != the viewport centre. DirectDraw rects: right/bottom EXCLUSIVE.
+	SrcSub.iLeft   = iCx + ( ( ViewportRect.iLeft   - iCx ) * iDen ) / iNum;
+	SrcSub.iTop    = iCy + ( ( ViewportRect.iTop    - iCy ) * iDen ) / iNum;
+	SrcSub.iRight  = iCx + ( ( ViewportRect.iRight  - iCx ) * iDen ) / iNum;
+	SrcSub.iBottom = iCy + ( ( ViewportRect.iBottom - iCy ) * iDen ) / iNum;
+
+	// Scratch holds the magnified destination. It is allocated at the full viewport height, so the
+	// clamped window always fits in its top-left corner.
+	iDstW = ViewportRect.iRight  - ViewportRect.iLeft;
+	iDstH = ViewportRect.iBottom - ViewportRect.iTop;
+	ScratchFull.iLeft   = 0;
+	ScratchFull.iTop    = 0;
+	ScratchFull.iRight  = iDstW;
+	ScratchFull.iBottom = iDstH;
+
+	// 1) Magnify the source sub-rect up into the scratch surface (DD hardware stretch).
 	BltStretchVideoSurface( guiZoomScratchSurface, FRAME_BUFFER, 0, 0, 0, &SrcSub, &ScratchFull );
 
-	// 2) Copy the magnified image (1:1) back over the viewport. Everything below gsVIEWPORT_END_Y
-	//    (the interface panel) is untouched, so the UI stays at native scale.
+	// 2) Copy the magnified image (1:1) back over the world window. Everything at/below
+	//    gsVIEWPORT_WINDOW_END_Y (the interface panel) is untouched, so the UI stays at native scale.
 	BltStretchVideoSurface( FRAME_BUFFER, guiZoomScratchSurface, 0, 0, 0, &ScratchFull, &ViewportRect );
 }
 
