@@ -102,6 +102,24 @@ extern INT16	gsRenderCenterY;
 extern INT16	gsRenderWorldOffsetX;
 extern INT16	gsRenderWorldOffsetY;
 
+// --- Tactical zoom-in -------------------------------------------------------
+// gsTacticalZoomLevel: 0 = 1.0x (off, default), 1 = 1.5x, 2 = 2.0x (crisp pixel-doubling).
+extern INT16	gsTacticalZoomLevel;
+extern UINT32	guiZoomScratchSurface;
+
+// Zoom factor as an exact rational num/den ( >= 1 ). Keeping it rational lets the magnify
+// rectangle and the mouse-picking divide stay perfectly in sync (no float drift). At level 0
+// num==den==1, so every zoom-aware expression is an exact no-op.
+inline INT32 TacticalZoomNum( void ) { return ( gsTacticalZoomLevel >= 2 ) ? 2 : ( ( gsTacticalZoomLevel == 1 ) ? 3 : 1 ); }
+inline INT32 TacticalZoomDen( void ) { return ( gsTacticalZoomLevel == 1 ) ? 2 : 1; }
+
+// Magnify the just-rendered tactical viewport in place (zoom-in). No-op at level 0.
+void    ApplyTacticalZoom( void );
+// (Re)create the viewport-sized scratch surface used by the zoom; FALSE on failure.
+BOOLEAN EnsureZoomScratchSurface( void );
+// Release the scratch surface (called when zoom returns to 0 / on teardown).
+void    FreeZoomScratchSurface( void );
+
 // CURRENT VIEWPORT IN WORLD COORDS
 extern INT16 gsTopLeftWorldX;
 extern INT16 gsTopLeftWorldY;

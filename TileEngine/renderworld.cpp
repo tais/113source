@@ -472,6 +472,107 @@ INT16		gsRenderCenterX;
 INT16		gsRenderCenterY;
 INT16		gsRenderWorldOffsetX	= 0;  //lal was -1 : bugfix for merc screen position in tactical on high resolution
 INT16		gsRenderWorldOffsetY	= 10; //lal was -1
+
+// --- Tactical zoom-in -------------------------------------------------------
+INT16		gsTacticalZoomLevel		= 0;
+UINT32		guiZoomScratchSurface	= 0xFFFFFFFF;	// 0xFFFFFFFF == no surface allocated
+
+// (Re)create a viewport-sized 16bpp scratch surface used as the intermediate for the
+// magnify (a DirectDraw stretch onto the same surface is undefined, so we need a 2nd one).
+BOOLEAN EnsureZoomScratchSurface( void )
+{
+	static UINT16 susLastW = 0, susLastH = 0;
+
+	UINT16 usW = (UINT16)( gsVIEWPORT_END_X - gsVIEWPORT_START_X );
+	UINT16 usH = (UINT16)( gsVIEWPORT_END_Y - gsVIEWPORT_START_Y );
+
+	if ( usW == 0 || usH == 0 )
+		return FALSE;
+
+	// Re-create if the viewport size changed (resolution / interface panel switch).
+	if ( guiZoomScratchSurface != 0xFFFFFFFF && ( usW != susLastW || usH != susLastH ) )
+		FreeZoomScratchSurface();
+
+	if ( guiZoomScratchSurface == 0xFFFFFFFF )
+	{
+		VSURFACE_DESC vs_desc;
+		memset( &vs_desc, 0, sizeof( VSURFACE_DESC ) );
+		vs_desc.fCreateFlags = VSURFACE_CREATE_DEFAULT | VSURFACE_DEFAULT_MEM_USAGE;
+		vs_desc.usWidth      = usW;
+		vs_desc.usHeight     = usH;
+		vs_desc.ubBitDepth   = PIXEL_DEPTH;		// 16bpp, required by BltStretchVideoSurface
+
+		if ( !AddVideoSurface( &vs_desc, &guiZoomScratchSurface ) )
+		{
+			guiZoomScratchSurface = 0xFFFFFFFF;
+			return FALSE;
+		}
+		susLastW = usW;
+		susLastH = usH;
+	}
+	return TRUE;
+}
+
+void FreeZoomScratchSurface( void )
+{
+	if ( guiZoomScratchSurface != 0xFFFFFFFF )
+	{
+		DeleteVideoSurfaceFromIndex( guiZoomScratchSurface );
+		guiZoomScratchSurface = 0xFFFFFFFF;
+	}
+}
+
+// Magnify the freshly-rendered tactical world viewport in place. The world render, the
+// mouse-picking transform (Isometric Utils.cpp) and this magnify all pivot on the SAME point
+// ( (gsVIEWPORT_END - gsVIEWPORT_START)/2 ), so a tile under the cursor magnifies back to
+// exactly under the cursor -> no offset. No-op at zoom level 0.
+void ApplyTacticalZoom( void )
+{
+	INT32	iNum, iDen, iVpW, iVpH, iSubW, iSubH;
+	SGPRect	SrcSub, ScratchFull, ViewportRect;
+
+	if ( gsTacticalZoomLevel <= 0 )
+		return;
+
+	if ( !EnsureZoomScratchSurface() )
+		return;
+
+	iNum = TacticalZoomNum();
+	iDen = TacticalZoomDen();
+
+	iVpW = gsVIEWPORT_END_X - gsVIEWPORT_START_X;
+	iVpH = gsVIEWPORT_END_Y - gsVIEWPORT_START_Y;
+
+	// Centred source sub-rectangle of the rendered viewport, shrunk by den/num.
+	iSubW = iVpW * iDen / iNum;
+	iSubH = iVpH * iDen / iNum;
+
+	// Centred sub-rect of the FRAME_BUFFER viewport (DirectDraw rects: right/bottom EXCLUSIVE).
+	SrcSub.iLeft   = gsVIEWPORT_START_X + ( iVpW - iSubW ) / 2;
+	SrcSub.iTop    = gsVIEWPORT_START_Y + ( iVpH - iSubH ) / 2;
+	SrcSub.iRight  = SrcSub.iLeft + iSubW;
+	SrcSub.iBottom = SrcSub.iTop  + iSubH;
+
+	// The whole scratch surface ( == viewport size ).
+	ScratchFull.iLeft   = 0;
+	ScratchFull.iTop    = 0;
+	ScratchFull.iRight  = iVpW;
+	ScratchFull.iBottom = iVpH;
+
+	// The on-screen viewport region inside the FRAME_BUFFER.
+	ViewportRect.iLeft   = gsVIEWPORT_START_X;
+	ViewportRect.iTop    = gsVIEWPORT_START_Y;
+	ViewportRect.iRight  = gsVIEWPORT_START_X + iVpW;
+	ViewportRect.iBottom = gsVIEWPORT_START_Y + iVpH;
+
+	// 1) Magnify the centred sub-rect of the world up into the scratch surface (DD hardware stretch).
+	BltStretchVideoSurface( guiZoomScratchSurface, FRAME_BUFFER, 0, 0, 0, &SrcSub, &ScratchFull );
+
+	// 2) Copy the magnified image (1:1) back over the viewport. Everything below gsVIEWPORT_END_Y
+	//    (the interface panel) is untouched, so the UI stays at native scale.
+	BltStretchVideoSurface( FRAME_BUFFER, guiZoomScratchSurface, 0, 0, 0, &ScratchFull, &ViewportRect );
+}
+
 SGPRect		gSelectRegion;
 UINT32		fSelectMode				= NO_SELECT;
 SGPPoint	gSelectAnchor;

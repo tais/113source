@@ -2824,30 +2824,47 @@ void GetKeyboardInput( UINT32 *puiNewEvent )
 						ScreenMsg( FONT_MCOLOR_LTYELLOW, MSG_INTERFACE, L"Using Normal Scroll Speed"	);
 						gubCurScrollSpeedID = 1;
 #endif
+						// Tactical zoom-out (main-row '-' or numpad '-', no modifier). Alt='-' still lowers
+						// music volume (handled above); only the no-modifier branch drives zoom.
+						if ( gsTacticalZoomLevel > 0 )
+						{
+							gsTacticalZoomLevel--;
+							if ( gsTacticalZoomLevel == 0 )
+								FreeZoomScratchSurface();
+							InvalidateWorldRedundency();
+							SetRenderFlags( RENDER_FLAG_FULL );
+						}
 					}
 				}
 				break;
 
 			case '+':
-#ifdef JA2TESTVERSION
 				if( fAlt )
 				{
+#ifdef JA2TESTVERSION
 					if(MusicGetVolume() <= 107)
 						MusicSetVolume(MusicGetVolume()+20);
 					else
 						MusicSetVolume(127);
+#endif
 				}
 				else if( fCtrl )
 				{
+#ifdef JA2TESTVERSION
 					gTacticalStatus.bRealtimeSpeed = min( MAX_REALTIME_SPEED_VAL, gTacticalStatus.bRealtimeSpeed+1 );
 					ScreenMsg( FONT_MCOLOR_LTYELLOW, MSG_INTERFACE, L"Increasing Realtime speed to %d", gTacticalStatus.bRealtimeSpeed );
+#endif
 				}
 				else
 				{
-					ScreenMsg( FONT_MCOLOR_LTYELLOW, MSG_INTERFACE, L"Using Higher Scroll Speed"	);
-					gubCurScrollSpeedID = 2;
+					// Tactical zoom-in (main-row Shift+'=' or numpad '+', no modifier)
+					if ( gsTacticalZoomLevel < 2 )
+					{
+						gsTacticalZoomLevel++;
+						InvalidateWorldRedundency();
+						SetRenderFlags( RENDER_FLAG_FULL );
+					}
 				}
-#endif
 				break;
 
 			case '=':

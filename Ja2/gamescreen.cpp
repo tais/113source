@@ -808,6 +808,11 @@ UINT32	MainGameScreenHandle(void)
 
 	//SetRenderFlags( RENDER_FLAG_FULL );
 
+	// Tactical zoom magnifies the whole viewport, so a partial/scroll render can't be reused —
+	// force a full world render every frame while zoomed in.
+	if ( gsTacticalZoomLevel > 0 )
+		SetRenderFlags( RENDER_FLAG_FULL );
+
 	RenderWorld( );
 
 	if ( gRenderOverride != NULL )
@@ -832,6 +837,16 @@ UINT32	MainGameScreenHandle(void)
 
 	// Render Interface
 	RenderTopmostTacticalInterface( );
+
+	// Tactical zoom-in: magnify the fully-composited world viewport (world + every world-anchored
+	// overlay drawn by RenderWorld and RenderTopmostTacticalInterface) in place. Runs after all
+	// world-anchored drawing and before the screen-anchored chrome (radar, messages) below, so
+	// only the world is scaled while the interface stays crisp at native resolution.
+	if ( gsTacticalZoomLevel > 0 )
+	{
+		ApplyTacticalZoom( );
+		InvalidateScreen( );	// scaled viewport breaks 1:1 dirty-rect copies -> force a full present
+	}
 
 #ifdef JA2TESTVERSION
 	if ( gTacticalStatus.uiFlags & ENGAGED_IN_CONV )

@@ -616,8 +616,12 @@ BOOLEAN GetMouseWorldCoords( INT16 *psMouseX, INT16 *psMouseY )
 		return( FALSE );
 	}
 
-	sOffsetX = gViewportRegion.MouseXPos - ( ( gsVIEWPORT_END_X - gsVIEWPORT_START_X ) /2 ); // + gsRenderWorldOffsetX;
-	sOffsetY = gViewportRegion.MouseYPos - ( ( gsVIEWPORT_END_Y - gsVIEWPORT_START_Y ) /2 ) + 10;// + gsRenderWorldOffsetY;
+	// Tactical zoom: divide the centre-relative screen offset by the zoom factor so mouse picking
+	// matches the magnified view. The pivot is the viewport centre — identical to the magnify pivot
+	// in ApplyTacticalZoom — so the tile under the cursor maps back exactly. No-op at zoom level 0.
+	// The +10 (gsRenderWorldOffsetY) nudge is part of the native render and stays outside the divide.
+	sOffsetX = ( gViewportRegion.MouseXPos - ( ( gsVIEWPORT_END_X - gsVIEWPORT_START_X ) /2 ) ) * TacticalZoomDen() / TacticalZoomNum(); // + gsRenderWorldOffsetX;
+	sOffsetY = ( gViewportRegion.MouseYPos - ( ( gsVIEWPORT_END_Y - gsVIEWPORT_START_Y ) /2 ) ) * TacticalZoomDen() / TacticalZoomNum() + 10;// + gsRenderWorldOffsetY;
 
 	// OK, Let's offset by a value if our interfac level is changed!
 	if ( gsInterfaceLevel != 0 )
@@ -715,8 +719,9 @@ void GetScreenXYWorldCoords( INT16 sScreenX, INT16 sScreenY, INT16 *psWorldX, IN
 	INT16 sStartPointX_W, sStartPointY_W;
 
 	// Convert mouse screen coords into offset from center
-	sOffsetX = sScreenX - ( gsVIEWPORT_END_X - gsVIEWPORT_START_X ) /2;
-	sOffsetY = sScreenY - ( gsVIEWPORT_END_Y - gsVIEWPORT_START_Y ) /2;
+	// Tactical zoom: see GetMouseWorldCoords — divide the centre-relative offset by the zoom factor.
+	sOffsetX = ( sScreenX - ( gsVIEWPORT_END_X - gsVIEWPORT_START_X ) /2 ) * TacticalZoomDen() / TacticalZoomNum();
+	sOffsetY = ( sScreenY - ( gsVIEWPORT_END_Y - gsVIEWPORT_START_Y ) /2 ) * TacticalZoomDen() / TacticalZoomNum();
 
 	FromScreenToCellCoordinates( sOffsetX, sOffsetY, &sTempPosX_W, &sTempPosY_W );
 
