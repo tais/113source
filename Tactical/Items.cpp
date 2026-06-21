@@ -5093,6 +5093,13 @@ BOOLEAN OBJECTTYPE::AttachObjectNAS( SOLDIERTYPE * pSoldier, OBJECTTYPE * pAttac
 							if( !AutoPlaceObject(pSoldier, &pLBE->inv[i], FALSE) )
 								// that didn't work. Place it on the ground instead.
 								AutoPlaceObjectToWorld( pSoldier, &pLBE->inv[i], TRUE );
+
+							// AutoPlaceObjectToWorld does not erase the source in tactical mode (cf. the
+							// workaround at Items.cpp:15116 and Item Types.cpp:327). If the pocket slot is
+							// still populated, clear it - otherwise the item stays inside the pocket we
+							// attach below and is duplicated (ground copy + attached copy).
+							if( pLBE->inv[i].exists() )
+								DeleteObj( &(pLBE->inv[i]) );
 						}
 					}
 					// finished removing items. Now attach the MOLLE pocket to its carrier.
