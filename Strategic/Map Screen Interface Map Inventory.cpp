@@ -1134,7 +1134,13 @@ void SaveSeenAndUnseenItems( void )
 		{
 			uiTotalNumberOfVisibleItems += pipl->object.ubNumberOfObjects;
 			if(i > uiNumberOfSeenItems)
+			{
 				pInventoryPoolList[uiNumberOfSeenItems] = *pipl;
+				// Invalidate the stale source copy after moving it down (upstream PR #615). Otherwise a
+				// trailing duplicate survives in the full-vector store (UpdateWorldItems, unloaded sector)
+				// and PruneWorldItems promotes it to a real item on save -> item duplication.
+				pipl->fExists = FALSE;
+			}
 			uiNumberOfSeenItems++;
 		}
 	}

@@ -1476,6 +1476,10 @@ void HandleNPCItemGiven( UINT8 ubNPC, OBJECTTYPE *pObject, INT8 bInvPos )
 		if ( pNPC )
 		{
 			AddItemToPool( pNPC->sGridNo, &(pNPC->inv[bInvPos]), TRUE, 0, 0, 0 );
+			// AddItemToPool copies the object into the world pool but does not clear the source slot, so
+			// clear the NPC's inventory slot here; otherwise the gift exists both on the ground and in
+			// the NPC's inventory and is duplicated on sector save (cf. the give flow at NPC.cpp:2304).
+			DeleteObj( &(pNPC->inv[bInvPos]) );
 			TriggerNPCWithGivenApproach( ubNPC, APPROACH_DONE_GIVING_ITEM, TRUE );
 		}
 	}
