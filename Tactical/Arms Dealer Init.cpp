@@ -151,7 +151,7 @@ void InitializeOneArmsDealer( UINT8 ubArmsDealer )
 	for ( usItemIndex = 1; usItemIndex < gMAXITEMS_READ; ++usItemIndex )
 	{
 		if ( Item[usItemIndex].usItemClass == 0 )
-			break;
+			continue;	// skip a gap (blank item ID) rather than ending iteration; else no item past the first gap is ever stocked
 
 		//Can the item be sold by the arms dealer
 		if( CanDealerTransactItem( ubArmsDealer, usItemIndex, FALSE ) )
@@ -357,7 +357,7 @@ void SimulateArmsDealerCustomer()
 		for ( UINT16 usItemIndex = 1; usItemIndex < gMAXITEMS_READ; ++usItemIndex )
 		{
 			if ( Item[usItemIndex].usItemClass	== 0 )
-				break;
+				continue;	// skip a gap (blank item ID) rather than ending iteration
 #ifdef JA2UB			
 			//JA25 UB//			
 			if( !CanThisItemBeSoldToSimulatedCustomer( ubArmsDealer, usItemIndex ) )

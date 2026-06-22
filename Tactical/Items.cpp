@@ -12650,7 +12650,7 @@ UINT16 PickARandomLaunchable(UINT16 itemIndex)
 	for ( UINT16 i = 0; i < gMAXITEMS_READ; ++i )
 	{
 		if ( Item[i].usItemClass == 0 )
-			break;
+			continue;	// skip a gap (blank item ID) rather than ending iteration; else launchables past the first gap are never picked
 
 		//Madd: quickfix: make it not choose best grenades right away.
 		if ( Item[i].ubCoolness <= maxcoolness && ItemIsLegal( i ) && ValidLaunchable( i, itemIndex ) )

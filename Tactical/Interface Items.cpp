@@ -5741,7 +5741,7 @@ void UpdateAttachmentTooltips(OBJECTTYPE *pObject, UINT8 ubStatusIndex)
 				{
 					// check that reached end of valid items
 					if (Item[usLoop].usItemClass == 0)
-						break;
+						continue;	// skip a gap (blank item ID) rather than ending iteration; else attachments past the first gap are never listed
 
 					//We no longer find valid attachments from AttachmentSlots.xml so we need to work a bit harder to get our list
 					usAttachment = 0;
