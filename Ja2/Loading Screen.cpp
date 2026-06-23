@@ -385,6 +385,11 @@ static std::string FindBestFittingLoadscreenFilename(const std::string& baseName
 			return fileName + ".png";
 		}
 
+		if (FileExists((CHAR8*)((fileName + ".jpc.7z").c_str())))
+		{
+			return fileName + ".jpc.7z";
+		}
+
 		if (FileExists((CHAR8*)((fileName + ".sti").c_str())))
 		{
 			return fileName + ".sti";
@@ -394,6 +399,11 @@ static std::string FindBestFittingLoadscreenFilename(const std::string& baseName
 	if (FileExists((CHAR8*)((baseName + ".png").c_str())))
 	{
 		return baseName + ".png";
+	}
+
+	if (FileExists((CHAR8*)((baseName + ".jpc.7z").c_str())))
+	{
+		return baseName + ".jpc.7z";
 	}
 
 	return baseName + ".sti";

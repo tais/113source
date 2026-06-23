@@ -217,6 +217,33 @@ BOOLEAN	FileExists( STR strFilename )
 
 //**************************************************************************
 //
+// GraphicFileExists
+//
+//		Like FileExists, but honours the image loaders' JPC_FALLBACK / PNG_FALLBACK
+//		(see himage.cpp getFileReaderType): returns TRUE if the literal file exists, or a
+//		<name>.jpc.7z / <name>.png sibling exists - which CreateImage()/AddVideoSurface() will
+//		load in place of the original. Use this for existence prechecks that guard a graphic
+//		load, so an install whose graphics were converted to .jpc.7z / .png (and the original
+//		.sti removed) is not rejected for files it can actually render.
+//
+//**************************************************************************
+BOOLEAN	GraphicFileExists( STR strFilename )
+{
+	if ( FileExists( strFilename ) ) return TRUE;
+	char buf[ 280 ];
+	if ( strFilename == NULL || strlen( strFilename ) + 7 >= sizeof( buf ) ) return FALSE;
+	strcpy( buf, strFilename );
+	char* dot = strrchr( buf, '.' );
+	if ( dot == NULL ) return FALSE;
+	strcpy( dot + 1, "jpc.7z" );
+	if ( FileExists( buf ) ) return TRUE;
+	strcpy( dot + 1, "png" );
+	if ( FileExists( buf ) ) return TRUE;
+	return FALSE;
+}
+
+//**************************************************************************
+//
 // FileExistsNoDB
 //
 //		Checks if a file exists, but doesn't check the database files.
