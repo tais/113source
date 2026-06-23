@@ -106,7 +106,7 @@ void XMLCALL SurfaceDB::StartElementHandle(void* userData, const XML_Char* name,
 				if (!ConvertStringToINT8(aFrms, &(sType->bProfile))) throw XMLParseException("Attribute 'profile' doesn't have a valid value!", name, data->pParser);
 				if (!ConvertStringToUINT32(aDirs, &(sType->uiNumDirections))) throw XMLParseException("Attribute 'directions' doesn't have a valid value!", name, data->pParser);
 				if (!ConvertStringToUINT32(aFrms, &(sType->uiNumFramesPerDir))) throw XMLParseException("Attribute 'framesperdir' doesn't have a valid value!", name, data->pParser);
-				if (!FileExists(sType->Filename)) {
+				if (!GraphicFileExists(sType->Filename)) {
 					std::string msg = "Animation surface file does not exist: ";
 					msg += sType->Filename;
 					throw XMLParseException(msg.c_str(), name, data->pParser);

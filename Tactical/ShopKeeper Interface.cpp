@@ -1349,7 +1349,7 @@ BOOLEAN RenderShopKeeperInterface()
 		VSURFACE_DESC		vs_desc;
 		vs_desc.fCreateFlags = VSURFACE_CREATE_FROMFILE | VSURFACE_SYSTEM_MEM_USAGE;
 		strcpy( vs_desc.ImageFile, "LAPTOP\\shopkeeperbackground.pcx" );
-		if ( FileExists( vs_desc.ImageFile ) )
+		if ( GraphicFileExists( vs_desc.ImageFile ) )
 		{
 			AddVideoSurface( &vs_desc, &guiMainTradeScreenImage );
 		}

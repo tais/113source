@@ -82,6 +82,7 @@ extern void		ShutdownFileManager( void );
 
 
 BOOLEAN	FileExists( STR strFilename );
+BOOLEAN	GraphicFileExists( STR strFilename );	// FileExists + image-loader JPC/PNG fallback (see FileMan.cpp)
 extern BOOLEAN	FileExistsNoDB( STR strFilename );
 extern BOOLEAN	FileDelete( STR strFilename );
 extern HWFILE	FileOpen( STR strFilename, UINT32 uiOptions, BOOLEAN fDeleteOnClose=FALSE, STR strProfilename=NULL );//dnl ch81 021213
