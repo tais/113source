@@ -434,7 +434,10 @@ itemEndElementHandle(void *userData, const XML_Char *name)
 					pData->curArray[pData->curItem.uiIndex] = pData->curItem; //write the item into the table
 
 					// Flugente: new item -> read items increase
-					gMAXITEMS_READ = pData->curItem.uiIndex;
+					// Track the HIGHEST index seen, not merely the last one written, so the item-table
+					// upper bound is correct regardless of the order items appear in the file.
+					if ( pData->curItem.uiIndex > gMAXITEMS_READ )
+						gMAXITEMS_READ = pData->curItem.uiIndex;
 				}
 				else if ( sizeof(pData->curItem.szItemName)>0 && localizedTextOnly )
 				{
