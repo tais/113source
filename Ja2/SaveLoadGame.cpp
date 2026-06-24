@@ -7147,9 +7147,8 @@ BOOLEAN SaveFilesToSavedGame( STR pSrcFileName, HWFILE hFile )
 	UINT32	uiFileSize=0;
 	UINT32	uiNumBytesWritten=0;
 	HWFILE	hSrcFile=NULL;
-	UINT8	*pData=NULL;
 	UINT32	uiNumBytesRead=0;
-	
+
 	if(FileExists(pSrcFileName))
 	{
 		//open the file
@@ -7175,45 +7174,49 @@ BOOLEAN SaveFilesToSavedGame( STR pSrcFileName, HWFILE hFile )
 	//Get the file size of the source data file
 	uiFileSize = FileGetSize( hSrcFile );
 	if( uiFileSize == 0 )
+	{
+		FileClose( hSrcFile );
 		return( FALSE );
+	}
 
 	// Write the the size of the file to the saved game file
 	FileWrite( hFile, &uiFileSize, sizeof( UINT32 ), &uiNumBytesWritten );
 	if( uiNumBytesWritten != sizeof( UINT32 ) )
 	{
+		FileClose( hSrcFile );
 		return(FALSE);
 	}
 
-	//Allocate a buffer to read the data into
-	pData = (UINT8 *) MemAlloc( uiFileSize );
-	if( pData == NULL )
-		return( FALSE );
-	memset( pData, 0, uiFileSize);
-
-	// Read the saource file into the buffer
-	FileRead( hSrcFile, pData, uiFileSize, &uiNumBytesRead );
-	if( uiNumBytesRead != uiFileSize )
+	// Stream the file across in fixed 64KB chunks instead of buffering it whole.
+	// A multi-MB temp file (e.g. a huge ground item stash) previously required one
+	// contiguous MemAlloc( uiFileSize ), which fails under 32-bit address-space
+	// pressure and aborts the entire save. Chunked copying makes the temp file size
+	// irrelevant; the on-disk format ([UINT32 size][bytes]) is unchanged.
 	{
-		//Free the buffer
-		MemFree( pData );
+		static UINT8	ubChunk[ 65536 ];
+		UINT32			uiRemaining = uiFileSize;
 
-		return(FALSE);
+		while( uiRemaining > 0 )
+		{
+			UINT32 uiThisChunk = ( uiRemaining < sizeof( ubChunk ) ) ? uiRemaining : (UINT32)sizeof( ubChunk );
+
+			if( !FileRead( hSrcFile, ubChunk, uiThisChunk, &uiNumBytesRead ) || uiNumBytesRead != uiThisChunk )
+			{
+				FileClose( hSrcFile );
+				return(FALSE);
+			}
+
+			if( !FileWrite( hFile, ubChunk, uiThisChunk, &uiNumBytesWritten ) || uiNumBytesWritten != uiThisChunk )
+			{
+				FileClose( hSrcFile );
+				return(FALSE);
+			}
+
+			uiRemaining -= uiThisChunk;
+		}
 	}
 
-	// Write the buffer to the saved game file
-	FileWrite( hFile, pData, uiFileSize, &uiNumBytesWritten );
-	if( uiNumBytesWritten != uiFileSize )
-	{
-		//Free the buffer
-		MemFree( pData );
-
-		return(FALSE);
-	}
-
-	//Free the buffer
-	MemFree( pData );
-
-	//Clsoe the source data file
+	//Close the source data file
 	FileClose( hSrcFile );
 
 #ifdef JA2BETAVERSION
@@ -7229,7 +7232,6 @@ BOOLEAN LoadFilesFromSavedGame( STR pSrcFileName, HWFILE hFile )
 	UINT32	uiFileSize=0;
 	UINT32	uiNumBytesWritten=0;
 	HWFILE	hSrcFile=0;
-	UINT8		*pData=NULL;
 	UINT32	uiNumBytesRead=0;
 		
 	//If the source file exists, delete it
@@ -7270,42 +7272,35 @@ BOOLEAN LoadFilesFromSavedGame( STR pSrcFileName, HWFILE hFile )
 		return( TRUE );
 	}
 
-	//Allocate a buffer to read the data into
-	pData = (UINT8 *) MemAlloc( uiFileSize );
-	if( pData == NULL )
+	// Stream the data across in fixed 64KB chunks (mirror of SaveFilesToSavedGame)
+	// instead of buffering the whole temp file, so loading a multi-MB temp file
+	// never needs one contiguous allocation that could fail under memory pressure.
 	{
-		FileClose( hSrcFile );
-		return( FALSE );
+		static UINT8	ubChunk[ 65536 ];
+		UINT32			uiRemaining = uiFileSize;
+
+		while( uiRemaining > 0 )
+		{
+			UINT32 uiThisChunk = ( uiRemaining < sizeof( ubChunk ) ) ? uiRemaining : (UINT32)sizeof( ubChunk );
+
+			// Read this chunk out of the saved game file
+			if( !FileRead( hFile, ubChunk, uiThisChunk, &uiNumBytesRead ) || uiNumBytesRead != uiThisChunk )
+			{
+				FileClose( hSrcFile );
+				return(FALSE);
+			}
+
+			// Write it to the destination temp file
+			if( !FileWrite( hSrcFile, ubChunk, uiThisChunk, &uiNumBytesWritten ) || uiNumBytesWritten != uiThisChunk )
+			{
+				FileClose( hSrcFile );
+				DebugMsg( TOPIC_JA2, DBG_LEVEL_3, String("FAILED to Write to the %s File", pSrcFileName ) );
+				return(FALSE);
+			}
+
+			uiRemaining -= uiThisChunk;
+		}
 	}
-	//ADB looks hardly necessary if there is a read right below
-	//memset( pData, 0, uiFileSize);
-
-	// Read into the buffer
-	FileRead( hFile, pData, uiFileSize, &uiNumBytesRead );
-	if( uiNumBytesRead != uiFileSize )
-	{
-		FileClose( hSrcFile );
-
-		//Free the buffer
-		MemFree( pData );
-
-		return(FALSE);
-	}
-
-	// Write the buffer to the new file
-	FileWrite( hSrcFile, pData, uiFileSize, &uiNumBytesWritten );
-	if( uiNumBytesWritten != uiFileSize )
-	{
-		FileClose( hSrcFile );
-		DebugMsg( TOPIC_JA2, DBG_LEVEL_3, String("FAILED to Write to the %s File", pSrcFileName ) );
-		//Free the buffer
-		MemFree( pData );
-
-		return(FALSE);
-	}
-
-	//Free the buffer
-	MemFree( pData );
 
 	//Close the source data file
 	FileClose( hSrcFile );
