@@ -1163,6 +1163,10 @@ void SkyriderDestroyed( void )
 	RemoveVehicleFromList( iHelicopterVehicleId );
 	iHelicopterVehicleId = -1;
 
+	// passengers and the vehicle entry are gone - make sure the mapscreen team list
+	// gets rebuilt before it's queried again, so it doesn't reference torn-down soldiers
+	fReBuildCharacterList = TRUE;
+
 	return;
 }
 

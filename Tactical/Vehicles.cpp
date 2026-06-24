@@ -1401,6 +1401,10 @@ BOOLEAN KillPersonInVehicle( INT32 iId, SOLDIERTYPE *pSoldier )
 	// otherwise hurt them
 	pSoldier->SoldierTakeDamage( 0, 100, 100, TAKE_DAMAGE_BLOODLOSS, NOBODY, NOWHERE, 0, TRUE );
 
+	// killing a passenger (e.g. a heli casualty from a SAM hit) can leave the mapscreen
+	// team list pointing at a torn-down soldier; force a rebuild on the next frame
+	fReBuildCharacterList = TRUE;
+
 	return( TRUE );
 }
 
