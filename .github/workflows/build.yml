@@ -216,3 +216,32 @@ jobs:
         gh release upload "$GITHUB_REF_NAME" ../dist/* --clobber
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # one-off: publish the ARC debug build (exe + pdb) straight from the runner,
+  # pulling the already-built English_ja2 artifact from the green build run.
+  # uses a non-v tag so it does NOT re-trigger the full release pipeline.
+  debug-release:
+    if: github.ref == 'refs/heads/arc-debug-build'
+    runs-on: ubuntu-latest
+    steps:
+    - name: Download English ja2 (exe + pdb) from the green build
+      uses: actions/download-artifact@v4
+      with:
+        name: English_ja2
+        path: dbg
+        run-id: 28094425871
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+    - name: Publish debug prerelease
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        set -eux
+        ls -la dbg
+        gh release delete debug-v0.0.1 --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes || true
+        sleep 5
+        gh release create debug-v0.0.1 dbg/* \
+          --repo "$GITHUB_REPOSITORY" \
+          --target "$GITHUB_SHA" \
+          --title "v0.0.1-debug - ARC fix (RelWithDebInfo, exe + pdb)" \
+          --notes "RelWithDebInfo build of the Rebel Command 0% town-loyalty fix (current master, PR #9). Includes JA2_ENGLISH.exe + JA2_ENGLISH.pdb (debug symbols) - drop into your JA2 1.13 install." \
+          --prerelease
