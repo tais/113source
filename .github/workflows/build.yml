@@ -216,3 +216,30 @@ jobs:
         gh release upload "$GITHUB_REF_NAME" ../dist/* --clobber
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # one-off: publish the v0.0.2 debug build (exe + pdb) straight from the runner,
+  # using this run's freshly-built English_ja2 artifact (ARC fix + large-save fix).
+  debug-release:
+    needs: [ build ]
+    if: github.ref == 'refs/heads/release-v0.0.2'
+    runs-on: ubuntu-latest
+    steps:
+    - name: Download English ja2 (exe + pdb)
+      uses: actions/download-artifact@v4
+      with:
+        name: English_ja2
+        path: dbg
+    - name: Publish v0.0.2 prerelease
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        set -eux
+        ls -la dbg
+        gh release delete v0.0.2 --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes || true
+        sleep 5
+        gh release create v0.0.2 dbg/* \
+          --repo "$GITHUB_REPOSITORY" \
+          --target "$GITHUB_SHA" \
+          --title "v0.0.2 - ARC fix + large-save fix (RelWithDebInfo, exe + pdb)" \
+          --notes "RelWithDebInfo build combining the Rebel Command 0% town-loyalty fix (PR #9) and the large-save chunked-streaming fix (PR #10), on current master. Includes JA2_ENGLISH.exe + JA2_ENGLISH.pdb (debug symbols) - drop into your JA2 1.13 install." \
+          --prerelease
