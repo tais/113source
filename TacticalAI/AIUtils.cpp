@@ -4018,7 +4018,7 @@ UINT8 CountNearbyFriendsLastAttackHit( SOLDIERTYPE *pSoldier, INT32 sGridNo, UIN
 BOOLEAN LastTargetSuppressed( SOLDIERTYPE *pSoldier )
 {
 	CHECKF(pSoldier);
-	UINT8 ubTarget;
+	SoldierID ubTarget;
 
 	if (TileIsOutOfBounds(pSoldier->sLastTarget))
 		return FALSE;
@@ -4042,7 +4042,7 @@ BOOLEAN LastTargetSuppressed( SOLDIERTYPE *pSoldier )
 BOOLEAN LastTargetCollapsed( SOLDIERTYPE *pSoldier )
 {
 	CHECKF(pSoldier);
-	UINT8 ubTarget;
+	SoldierID ubTarget;
 
 	if (TileIsOutOfBounds(pSoldier->sLastTarget))
 		return FALSE;
