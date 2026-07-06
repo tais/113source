@@ -5329,6 +5329,66 @@ BOOLEAN AICheckNVG( SOLDIERTYPE *pSoldier )
 	return FALSE;
 }
 
+// sevenfm (ported): opponent-independent "can this soldier win an interrupt at all" check.
+// vr's SOLDIERTYPE::CanInterrupt() is a fork-only method absent from trunk (only the decl exists in
+// Soldier Control.h; its body is not in the provided vr_source). This reconstructs the same gate from
+// the self-only subset of StandardInterruptConditionsMet() (Tactical/TeamTurns.cpp): active/in-sector,
+// alive, conscious, enough APs, not gassed / under-fire / collapsed / neutral / (non-robot) EPC.
+BOOLEAN AICanInterrupt( SOLDIERTYPE *pSoldier )
+{
+	CHECKF(pSoldier);
+
+	// must be an active soldier that is in the sector
+	if (!pSoldier->bActive || !pSoldier->bInSector)
+	{
+		return FALSE;
+	}
+
+	// soldiers below OKLIFE can't perform any actions
+	if (pSoldier->stats.bLife < OKLIFE)
+	{
+		return FALSE;
+	}
+
+	// out of breath (about to fall over) or already collapsed
+	if (pSoldier->bBreath < OKBREATH || pSoldier->bCollapsed)
+	{
+		return FALSE;
+	}
+
+	// not enough APs left to react
+	if (pSoldier->bActionPoints < APBPConstants[MIN_APS_TO_INTERRUPT])
+	{
+		return FALSE;
+	}
+
+	// gassed soldiers are too busy holding their cookies down
+	if (pSoldier->flags.uiStatusFlags & SOLDIER_GASSED)
+	{
+		return FALSE;
+	}
+
+	// a soldier already fighting for his life is too busy surviving to get the jump on new threats
+	if (pSoldier->aiData.bUnderFire)
+	{
+		return FALSE;
+	}
+
+	// neutral folks never get interrupts
+	if (pSoldier->aiData.bNeutral)
+	{
+		return FALSE;
+	}
+
+	// no (non-robot) EPCs
+	if (AM_AN_EPC(pSoldier) && !AM_A_ROBOT(pSoldier))
+	{
+		return FALSE;
+	}
+
+	return TRUE;
+}
+
 BOOLEAN AICheckIsSniper(SOLDIERTYPE *pSoldier)
 {
 	CHECKF(pSoldier);
@@ -6017,7 +6077,7 @@ BOOLEAN EnemyCanAttackSpot(SOLDIERTYPE *pSoldier, INT32 sSpot, INT8 bLevel)
 }
 
 // sevenfm (ported): scan the soldier's remaining prepared path; abort the move (and flag the dangerous spot) if a path tile would enter light-at-night or a fresh-corpse warning zone under threat conditions
-// NOTE: original used AICheckSuccessfulAttack(pSoldier, TRUE); that helper's dependency chain (LastAttackHit, SOLDIER_SUCCESSFUL_ATTACK, LastTargetCollapsed/Suppressed, CountFriendsLastAttackHit) is fork-only and entirely absent from trunk, so fSuccessfulAttack is pinned to FALSE (neutral/cautious base case).
+// sevenfm (ported): AICheckSuccessfulAttack is now ported to trunk (defined above), so fSuccessfulAttack is wired to AICheckSuccessfulAttack(pSoldier, TRUE) -- matching vr's original call here and DecideSmokeCoverMovement -- instead of the earlier FALSE pin.
 // NOTE: requires adding  #include "Structure Wrap.h"  to AIUtils.cpp for IsJumpableFencePresentAtGridNo (not yet included there).
 BOOLEAN AbortPath(SOLDIERTYPE *pSoldier, INT8 bAction, INT32 sClosestDisturbance, INT8 bDisturbanceLevel, INT32& sDangerousSpot, INT32 &sLastSafeSpot)
 {
@@ -6048,8 +6108,8 @@ BOOLEAN AbortPath(SOLDIERTYPE *pSoldier, INT8 bAction, INT32 sClosestDisturbance
 	BOOLEAN fSeekEnemy = (pSoldier->aiData.bOrders == SEEKENEMY);
 	BOOLEAN fFlankingFriends = (CountFriendsFlankSameSpot(pSoldier, sClosestDisturbance) > 0);
 	BOOLEAN fFriendsBlack = (CountFriendsBlack(pSoldier, sClosestDisturbance) > 0);
-	// sevenfm (ported): AICheckSuccessfulAttack is fork-only and unavailable in trunk; use cautious base case
-	BOOLEAN fSuccessfulAttack = FALSE;
+	// sevenfm (ported): AICheckSuccessfulAttack now exists in trunk; call it for real (fGroup=TRUE, matching vr's original and DecideSmokeCoverMovement) so a squad that's already winning keeps advancing through light-at-night / fresh-corpse warnings
+	BOOLEAN fSuccessfulAttack = AICheckSuccessfulAttack(pSoldier, TRUE);
 	BOOLEAN fSafeSpot = SafeSpot(pSoldier);
 
 	INT16 sLoop;

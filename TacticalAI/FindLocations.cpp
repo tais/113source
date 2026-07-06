@@ -1449,6 +1449,18 @@ INT32 FindSpotMaxDistFromOpponents(SOLDIERTYPE *pSoldier)
 				continue;
 			}
 
+			// sevenfm (ported, CORRECTED): avoid candidate tiles near bombs (vr tested pSoldier->sGridNo -- buggy; fixed to candidate sGridNo)
+			if (FindBombNearby(pSoldier, sGridNo, BOMB_DETECTION_RANGE))
+			{
+				continue;
+			}
+
+			// sevenfm (ported, CORRECTED): avoid candidate tiles in red smoke (vr tested pSoldier->sGridNo -- buggy; fixed to candidate sGridNo)
+			if (RedSmokeDanger(sGridNo, pSoldier->pathing.bLevel))
+			{
+				continue;
+			}
+
 			if (!CheckNPCDestination(pSoldier, sGridNo))
 			{
 				continue;
@@ -1612,6 +1624,30 @@ INT32 FindNearestUngassedLand(SOLDIERTYPE *pSoldier)
 
 				// ignore blacklisted spot
 				if (sGridNo == pSoldier->pathing.sBlackList)
+				{
+					continue;
+				}
+
+				// sevenfm (ported): skip candidate tiles with tear/mustard gas
+				if (InGas(pSoldier, sGridNo))
+				{
+					continue;
+				}
+
+				// sevenfm (ported, CORRECTED): skip candidate deep-water tiles (vr tested pSoldier->sGridNo -- buggy; fixed to candidate sGridNo)
+				if (DeepWater(sGridNo, pSoldier->pathing.bLevel))
+				{
+					continue;
+				}
+
+				// sevenfm (ported): skip candidate tiles near bombs
+				if (FindBombNearby(pSoldier, sGridNo, BOMB_DETECTION_RANGE))
+				{
+					continue;
+				}
+
+				// sevenfm (ported): skip candidate tiles in red smoke
+				if (RedSmokeDanger(sGridNo, pSoldier->pathing.bLevel))
 				{
 					continue;
 				}
@@ -1869,33 +1905,16 @@ INT8 SearchForItems( SOLDIERTYPE * pSoldier, INT8 bReason, UINT16 usItem )
 		return( AI_ACTION_NONE );
 	}
 
-	iSearchRange = gbDiff[DIFF_MAX_COVER_RANGE][ SoldierDifficultyLevel( pSoldier ) ];
-	DebugAI(AI_MSG_INFO, pSoldier, String("use search range %d", iSearchRange));
-
-	switch (pSoldier->aiData.bAttitude)
+	// sevenfm (ported): use maximum item-search range
+	// NOTE: this deliberately OVERRIDES trunk's DIFF_MAX_COVER_RANGE/attitude/wisdom-limited radius
+	if (gfTurnBasedAI)
 	{
-		case DEFENSIVE:		iSearchRange --;	break;
-		case BRAVESOLO:		iSearchRange += 2; break;
-		case BRAVEAID:		iSearchRange += 2; break;
-		case CUNNINGSOLO:	iSearchRange -= 2; break;
-		case CUNNINGAID:	iSearchRange -= 2; break;
-		case AGGRESSIVE:	iSearchRange ++;	break;
+		iSearchRange = DAY_VISION_RANGE/2;
 	}
-
-	// maximum search range is 1 tile / 10 pts of wisdom
-	if (iSearchRange > (pSoldier->stats.bWisdom / 10))
+	else
 	{
-		iSearchRange = (pSoldier->stats.bWisdom / 10);
+		iSearchRange = DAY_VISION_RANGE/4;
 	}
-
-	if (!gfTurnBasedAI)
-	{
-		// don't search so far in realtime
-		iSearchRange /= 2;
-	}
-
-	// don't search so far for items
-	iSearchRange /= 2;
 
 	// determine maximum horizontal limits
 	sMaxLeft  = min( iSearchRange, (pSoldier->sGridNo % MAXCOL));

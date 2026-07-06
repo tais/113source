@@ -368,6 +368,7 @@ INT32 CountCorpses(SOLDIERTYPE *pSoldier, INT32 sSpot, INT16 sDistance, BOOLEAN 
 BOOLEAN AICheckDefense(SOLDIERTYPE *pSoldier);
 BOOLEAN SafeSpot(SOLDIERTYPE *pSoldier, INT32 sSpot = NOWHERE);
 BOOLEAN EnemyCanAttackSpot(SOLDIERTYPE *pSoldier, INT32 sSpot, INT8 bLevel);
+BOOLEAN AICanInterrupt(SOLDIERTYPE *pSoldier);	// sevenfm (ported): opponent-independent interrupt-capability self-check (used by the watched-location HIDE clause)
 BOOLEAN AbortPath(SOLDIERTYPE *pSoldier, INT8 bAction, INT32 sClosestDisturbance, INT8 bDisturbanceLevel, INT32 &sDangerousSpot, INT32 &sLastSafeSpot);
 BOOLEAN UseSightCoverAdvance(SOLDIERTYPE *pSoldier);
 

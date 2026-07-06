@@ -4345,6 +4345,15 @@ INT8 DecideActionRed(SOLDIERTYPE *pSoldier)
 						}
 					}
 				}
+				// sevenfm (ported): prefer hiding if soldier cannot interrupt
+				if (pSoldier->CheckInitialAP() &&
+					!AICanInterrupt(pSoldier))
+				{
+					if (bHidePts > -90)
+					{
+						bWatchPts = min(bWatchPts, bHidePts - 1);
+					}
+				}
 			}
 
 			// sevenfm: don't help if seen enemy recently or under fire
@@ -4419,6 +4428,24 @@ INT8 DecideActionRed(SOLDIERTYPE *pSoldier)
 									// abort! abort!
 									pSoldier->aiData.usActionData = NOWHERE;
 								}
+							}
+						}
+
+						// sevenfm (ported): abandon the seek if the chosen approach path crosses fresh enemy
+						// corpses (ambush indicator) or would force us into light at night. Mirrors vr
+						// DecideActionRed's AbortPath check on the SEEK_OPPONENT move spot. NOTE: vr's follow-on
+						// "truncate to last safe spot" branch is dead code there - AbortPath never assigns
+						// sLastSafeSpot (stays NOWHERE) - so vr's real runtime behavior is to abandon the seek,
+						// which nulling usActionData here reproduces (skips the flank/cautious recompute below,
+						// sets bSeekPts = -99, and falls through to watch/help/hide). The path read by AbortPath
+						// is the one just plotted by InternalGoAsFarAsPossibleTowards above and is still intact.
+						if (!TileIsOutOfBounds(pSoldier->aiData.usActionData))
+						{
+							INT32 sDangerousSpot = NOWHERE;
+							INT32 sLastSafeSpot = NOWHERE;
+							if (AbortPath(pSoldier, AI_ACTION_SEEK_OPPONENT, sClosestDisturbance, pSoldier->pathing.bLevel, sDangerousSpot, sLastSafeSpot))
+							{
+								pSoldier->aiData.usActionData = NOWHERE;
 							}
 						}
 
