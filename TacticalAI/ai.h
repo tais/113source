@@ -300,6 +300,11 @@ UINT8 CountFriendsBlack( SOLDIERTYPE *pSoldier, INT32 sClosestOpponent = NOWHERE
 UINT16 CountTeamUnderAttack(INT8 bTeam, INT32 sGridNo, INT16 sDistance);
 UINT16 CountPublicKnownEnemies(SOLDIERTYPE *pSoldier, INT32 sGridNo, INT16 sDistance);
 UINT16 CountPublicKnownEnemies(SOLDIERTYPE *pSoldier);
+// sevenfm (ported):
+BOOLEAN GuyKnowsEnemyPosition( SOLDIERTYPE * pSoldier );
+UINT8 CountFriendsNotAlerted(SOLDIERTYPE *pSoldier);
+void AlertFriends(INT8 bTeam, UINT8 ubCivGroup);
+INT16 DistanceToClosestNotSeekEnemyFriend( SOLDIERTYPE *pSoldier, INT32 sGridNo );
 
 UINT8 SectorCurfew(BOOLEAN fNight);
 UINT8 TeamPercentKilled(INT8 bTeam);
@@ -342,12 +347,20 @@ BOOLEAN CheckNPCDestination(SOLDIERTYPE *pSoldier, INT32 sGridNo);
 UINT8 SpotDangerLevel(SOLDIERTYPE *pSoldier, INT32 sGridNo);
 BOOLEAN AllowDeepWaterFlanking(SOLDIERTYPE *pSoldier);
 BOOLEAN AICheckUnderground(void);
+BOOLEAN AICheckTown(void);							// sevenfm (ported)
 INT32	RandomizeLocation(INT32 sSpot, INT8 bLevel, UINT8 ubTimes, SOLDIERTYPE *pSightSoldier);
 INT32	RandomizeOpponentLocation(INT32 sSpot, SOLDIERTYPE *pOpponent, INT16 sMaxDistance);
 
 BOOLEAN CorpseWarning(SOLDIERTYPE *pSoldier, INT32 sGridNo, INT8 bLevel);
 BOOLEAN CorpseEnemyTeam(ROTTING_CORPSE *pCorpse);
 BOOLEAN CorpseMilitiaTeam(ROTTING_CORPSE *pCorpse);
+// sevenfm (ported):
+INT32 CountCorpses(SOLDIERTYPE *pSoldier, INT32 sSpot, INT16 sDistance, BOOLEAN fCheckSight, BOOLEAN fFresh);
+BOOLEAN AICheckDefense(SOLDIERTYPE *pSoldier);
+BOOLEAN SafeSpot(SOLDIERTYPE *pSoldier, INT32 sSpot = NOWHERE);
+BOOLEAN EnemyCanAttackSpot(SOLDIERTYPE *pSoldier, INT32 sSpot, INT8 bLevel);
+BOOLEAN AbortPath(SOLDIERTYPE *pSoldier, INT8 bAction, INT32 sClosestDisturbance, INT8 bDisturbanceLevel, INT32 &sDangerousSpot, INT32 &sLastSafeSpot);
+BOOLEAN UseSightCoverAdvance(SOLDIERTYPE *pSoldier);
 
 BOOLEAN NorthSpot(INT32 sSpot, INT8 bLevel);
 BOOLEAN SoldierAI(SOLDIERTYPE *pSoldier);

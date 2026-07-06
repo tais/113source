@@ -25,6 +25,7 @@
 	#include "Rotting Corpses.h"	// sevenfm
 	#include "WCheck.h"				// sevenfm
 	#include "SmokeEffects.h"		// sevenfm
+	#include "Structure Wrap.h"		// sevenfm (ported): IsJumpableFencePresentAtGridNo (AbortPath)
 
 #include "GameInitOptionsScreen.h"
 
@@ -1113,6 +1114,13 @@ INT32 RandDestWithinRange(SOLDIERTYPE *pSoldier)
 			if (!CheckNPCDestination(pSoldier, sRandDest))
 			{
 				sRandDest = NOWHERE;
+				continue;
+			}
+
+			// sevenfm (ported): don't go too far from closest not SEEKENEMY friend if alert is not raised yet
+			if( pSoldier->aiData.bAlertStatus < STATUS_RED &&
+				DistanceToClosestNotSeekEnemyFriend(pSoldier, sRandDest) > DAY_VISION_RANGE )
+			{
 				continue;
 			}
 
@@ -4797,6 +4805,120 @@ BOOLEAN ValidOpponent(SOLDIERTYPE* pSoldier, SOLDIERTYPE* pOpponent)
 	return TRUE;
 }
 
+// sevenfm (ported): TRUE if pSoldier's personal opplist OR his team's public opplist has heard/seen any valid opponent
+BOOLEAN GuyKnowsEnemyPosition( SOLDIERTYPE * pSoldier )
+{
+	UINT32		uiLoop;							// widened from vr's UINT8 to match trunk idiom (guiNumMercSlots is UINT32)
+	SOLDIERTYPE *pOpponent;
+
+	for (uiLoop = 0; uiLoop < guiNumMercSlots; uiLoop++)
+	{
+		pOpponent = MercSlots[ uiLoop ];
+
+		// if this merc is inactive, at base, on assignment, or dead
+		if (!pOpponent)
+		{
+			continue;
+		}
+
+		if (!ValidOpponent(pSoldier, pOpponent))
+		{
+			continue;
+		}
+
+		// if this guy knows something about this enemy
+		if ( pSoldier->aiData.bOppList[ pOpponent->ubID ] != NOT_HEARD_OR_SEEN )
+		{
+			return( TRUE );
+		}
+		// check also public knowledge
+		if ( gbPublicOpplist[pSoldier->bTeam][ pOpponent->ubID ] != NOT_HEARD_OR_SEEN )
+		{
+			return( TRUE );
+		}
+	}
+
+	return( FALSE );
+}
+
+// sevenfm (ported): force every living friendly on bTeam (optionally restricted to civ group ubCivGroup) to at least STATUS_RED alert
+void AlertFriends(INT8 bTeam, UINT8 ubCivGroup)
+{
+	SOLDIERTYPE * pFriend;
+
+	// Run through each friendly.
+	for (UINT8 iCounter = gTacticalStatus.Team[bTeam].bFirstID; iCounter <= gTacticalStatus.Team[bTeam].bLastID; iCounter++)
+	{
+		pFriend = MercPtrs[iCounter];
+
+		if (pFriend &&
+			pFriend->bActive &&
+			pFriend->stats.bLife >= OKLIFE &&
+			(bTeam != CIV_TEAM || ubCivGroup != NON_CIV_GROUP && pFriend->ubCivilianGroup == ubCivGroup))
+		{
+			pFriend->aiData.bAlertStatus = max(pFriend->aiData.bAlertStatus, (INT8)STATUS_RED);
+		}
+	}
+}
+
+// sevenfm (ported): count living friendlies on pSoldier's team (same civ group if civ) whose alert status is still below STATUS_RED
+UINT8 CountFriendsNotAlerted(SOLDIERTYPE *pSoldier)
+{
+	SOLDIERTYPE * pFriend;
+	UINT8 ubFriendCount = 0;
+
+	// Run through each friendly.
+	for (UINT8 iCounter = gTacticalStatus.Team[pSoldier->bTeam].bFirstID; iCounter <= gTacticalStatus.Team[pSoldier->bTeam].bLastID; iCounter++)
+	{
+		pFriend = MercPtrs[iCounter];
+
+		if (pFriend &&
+			pFriend->bActive &&
+			pFriend->stats.bLife >= OKLIFE &&
+			(pSoldier->bTeam != CIV_TEAM || pSoldier->ubCivilianGroup != NON_CIV_GROUP && pFriend->ubCivilianGroup == pSoldier->ubCivilianGroup) &&
+			pFriend->aiData.bAlertStatus < STATUS_RED)
+		{
+			ubFriendCount++;
+		}
+	}
+
+	return ubFriendCount;
+}
+
+// sevenfm (ported): PythSpaces distance from sGridNo to the nearest living, in-sector, non-SEEKENEMY teammate (0 if none)
+INT16 DistanceToClosestNotSeekEnemyFriend( SOLDIERTYPE *pSoldier, INT32 sGridNo )
+{
+	CHECKF(pSoldier);
+
+	INT16 sDistance = 0;
+	SOLDIERTYPE * pFriend;
+
+	// Run through each friendly.
+	for ( UINT8 iCounter = gTacticalStatus.Team[ pSoldier->bTeam ].bFirstID ; iCounter <= gTacticalStatus.Team[ pSoldier->bTeam ].bLastID ; iCounter ++ )
+	{
+		pFriend = MercPtrs[ iCounter ];
+
+		// Make sure that character is alive, not too shocked, and conscious
+		if( pFriend &&
+			pFriend->bActive &&
+			pFriend->bInSector &&
+			pFriend != pSoldier &&
+			pFriend->aiData.bOrders != SEEKENEMY &&
+			pFriend->stats.bLife >= OKLIFE &&
+			!pFriend->bCollapsed &&
+			!pFriend->bBreathCollapsed &&
+			!(pFriend->usSoldierFlagMask & SOLDIER_POW) )
+		{
+			if(	sDistance == 0 || PythSpacesAway(sGridNo, pFriend->sGridNo) < sDistance )
+			{
+				sDistance = PythSpacesAway(sGridNo, pFriend->sGridNo);
+			}
+		}
+	}
+
+	return sDistance;
+}
+
 BOOLEAN AnyCoverFromSpot( INT32 sSpot, INT8 bLevel, INT32 sThreatLoc, INT8 bThreatLevel )
 {
 	UINT8	ubDirection;
@@ -5540,6 +5662,316 @@ BOOLEAN AICheckUnderground(void)
 	return FALSE;
 }
 
+// sevenfm (ported): TRUE if the currently loaded sector is an above-ground town sector
+BOOLEAN AICheckTown(void)
+{
+	// determine sector name
+	UINT8 ubTownID = GetTownIdForSector(gWorldSectorX, gWorldSectorY);
+
+	// not underground
+	if (gbWorldSectorZ > 0)
+	{
+		return FALSE;
+	}
+	// check town sector
+	if (ubTownID == BLANK_SECTOR)
+	{
+		return FALSE;
+	}
+
+	return TRUE;
+}
+
+// sevenfm (ported): TRUE if an enemy-team soldier should prefer a defensive posture (i.e. is in a town or underground sector)
+BOOLEAN AICheckDefense(SOLDIERTYPE *pSoldier)
+{
+	CHECKF(pSoldier);
+
+	// only for enemy team
+	if (pSoldier->bTeam != ENEMY_TEAM)
+	{
+		return FALSE;
+	}
+
+	// SEEKENEMY should always try to attack
+	if (pSoldier->bTeam == SEEKENEMY)
+	{
+		return FALSE;
+	}
+
+	// only try to defend in towns and underground
+	if (!AICheckTown() && !AICheckUnderground())
+	{
+		return FALSE;
+	}
+
+	return TRUE;
+}
+
+// sevenfm (ported): count nearby rotting corpses of the relevant team within sDistance of sSpot, optionally requiring LOS (fCheckSight) and/or a positive AI-warning value (fFresh)
+INT32 CountCorpses(SOLDIERTYPE *pSoldier, INT32 sSpot, INT16 sDistance, BOOLEAN fCheckSight, BOOLEAN fFresh)
+{
+	CHECKF(pSoldier);
+
+	INT32			cnt;
+	ROTTING_CORPSE *pCorpse;
+	UINT16			usNum = 0;
+
+	for (cnt = 0; cnt < giNumRottingCorpse; ++cnt)
+	{
+		pCorpse = &(gRottingCorpse[cnt]);
+
+		if (pCorpse &&
+			pCorpse->fActivated &&
+			pCorpse->def.ubType < ROTTING_STAGE2 &&
+			pCorpse->def.ubBodyType <= REGFEMALE &&
+			(!fFresh || pCorpse->def.ubAIWarningValue > 0) &&
+			!TileIsOutOfBounds(pCorpse->def.sGridNo) &&
+			PythSpacesAway(sSpot, pCorpse->def.sGridNo) <= sDistance &&
+			(pSoldier->bTeam == ENEMY_TEAM && CorpseEnemyTeam(pCorpse) || pSoldier->bTeam == MILITIA_TEAM && CorpseMilitiaTeam(pCorpse) || pSoldier->bTeam != ENEMY_TEAM && pSoldier->bTeam != MILITIA_TEAM) &&
+			(!fCheckSight || SoldierToVirtualSoldierLineOfSightTest(pSoldier, pCorpse->def.sGridNo, pCorpse->def.bLevel, ANIM_PRONE, TRUE, CALC_FROM_ALL_DIRS)))
+		{
+			usNum++;
+		}
+	}
+
+	return usNum;
+}
+
+// sevenfm (ported): TRUE if the spot has sight/prone cover, is not lit at night, the soldier is not under fire, and there is no fresh-corpse warning — i.e. the tile is 'safe'
+BOOLEAN SafeSpot(SOLDIERTYPE *pSoldier, INT32 sSpot)
+{
+	if (!pSoldier)
+	{
+		return FALSE;
+	}
+
+	if (sSpot == NOWHERE)
+	{
+		sSpot = pSoldier->sGridNo;
+	}
+
+	INT8 bLevel = pSoldier->pathing.bLevel;
+	BOOLEAN fUnlimitedSightCover = SightCoverAtSpot(pSoldier, sSpot, TRUE);
+	BOOLEAN fProneSightCover = ProneSightCoverAtSpot(pSoldier, sSpot, FALSE);
+	BOOLEAN fAnyCover = AnyCoverAtSpot(pSoldier, sSpot);
+
+	if ((fUnlimitedSightCover || fProneSightCover && fAnyCover || InARoom(sSpot, NULL) && bLevel == 0 && (fAnyCover || fProneSightCover)) &&
+		!InLightAtNight(sSpot, pSoldier->pathing.bLevel) &&
+		!pSoldier->aiData.bUnderFire &&
+		GetNearestRottingCorpseAIWarning(sSpot) == 0)
+	{
+		return TRUE;
+	}
+
+	return FALSE;
+}
+
+// sevenfm (ported): TRUE if any known, armed opponent has LOS to sSpot and the spot is within 1.5x that opponent's gun range — i.e. an enemy can see and attack the spot
+// NOTE: the original gated recently-seen/heard opponents on pOpponent->CanInterrupt(); that fork-only method is not defined in trunk (nor in this vr snapshot), so the interrupt gate and the now-unused personal/public-knowledge + threat-certainty locals were dropped. Effect: the threat check is slightly more inclusive (more conservative), never less.
+BOOLEAN EnemyCanAttackSpot(SOLDIERTYPE *pSoldier, INT32 sSpot, INT8 bLevel)
+{
+	CHECKF(pSoldier);
+
+	UINT32		uiLoop;
+	SOLDIERTYPE *pOpponent;
+	INT32		sThreatLoc;
+	INT8		iThreatLevel;
+
+	// look through all opponents for those we know of
+	for (uiLoop = 0; uiLoop < guiNumMercSlots; uiLoop++)
+	{
+		pOpponent = MercSlots[uiLoop];
+
+		// if this merc is inactive, at base, on assignment, dead, unconscious
+		if (!pOpponent || pOpponent->stats.bLife < OKLIFE)
+		{
+			continue;			// next merc
+		}
+
+		if (!ValidOpponent(pSoldier, pOpponent))
+		{
+			continue;
+		}
+
+		// if this opponent is unknown personally and publicly
+		if (Knowledge(pSoldier, pOpponent->ubID) == NOT_HEARD_OR_SEEN)
+		{
+			continue;
+		}
+
+		sThreatLoc = KnownLocation(pSoldier, pOpponent->ubID);
+		iThreatLevel = KnownLevel(pSoldier, pOpponent->ubID);
+
+		// safety check
+		if (TileIsOutOfBounds(sThreatLoc))
+		{
+			continue;
+		}
+
+		// ignore opponents without weapons
+		if (!AICheckHasGun(pOpponent) &&
+			PythSpacesAway(sThreatLoc, sSpot) > DAY_VISION_RANGE / 2)
+		{
+			continue;
+		}
+
+		// sevenfm: check only sight from enemy location to checked location
+		if (LocationToLocationLineOfSightTest(sThreatLoc, iThreatLevel, sSpot, bLevel, TRUE, MAX_VISION_RANGE) &&
+			AIGunRange(pOpponent) * 3 / 2 >= PythSpacesAway(sThreatLoc, sSpot))
+		{
+			return TRUE;
+		}
+	}
+
+	return FALSE;
+}
+
+// sevenfm (ported): scan the soldier's remaining prepared path; abort the move (and flag the dangerous spot) if a path tile would enter light-at-night or a fresh-corpse warning zone under threat conditions
+// NOTE: original used AICheckSuccessfulAttack(pSoldier, TRUE); that helper's dependency chain (LastAttackHit, SOLDIER_SUCCESSFUL_ATTACK, LastTargetCollapsed/Suppressed, CountFriendsLastAttackHit) is fork-only and entirely absent from trunk, so fSuccessfulAttack is pinned to FALSE (neutral/cautious base case).
+// NOTE: requires adding  #include "Structure Wrap.h"  to AIUtils.cpp for IsJumpableFencePresentAtGridNo (not yet included there).
+BOOLEAN AbortPath(SOLDIERTYPE *pSoldier, INT8 bAction, INT32 sClosestDisturbance, INT8 bDisturbanceLevel, INT32& sDangerousSpot, INT32 &sLastSafeSpot)
+{
+	sDangerousSpot = NOWHERE;
+	sLastSafeSpot = NOWHERE;
+
+	if (!pSoldier)
+	{
+		return FALSE;
+	}
+
+	INT32	sOpponentGridNo;
+	INT8	bOpponentLevel;
+	INT32	sClosestOpponent = ClosestKnownOpponent(pSoldier, &sOpponentGridNo, &bOpponentLevel);
+
+	if (TileIsOutOfBounds(sClosestDisturbance))
+	{
+		sClosestDisturbance = sClosestOpponent;
+		bDisturbanceLevel = bOpponentLevel;
+	}
+
+	if (TileIsOutOfBounds(sClosestDisturbance))
+	{
+		return FALSE;
+	}
+
+	INT8 bLevel = pSoldier->pathing.bLevel;
+	BOOLEAN fSeekEnemy = (pSoldier->aiData.bOrders == SEEKENEMY);
+	BOOLEAN fFlankingFriends = (CountFriendsFlankSameSpot(pSoldier, sClosestDisturbance) > 0);
+	BOOLEAN fFriendsBlack = (CountFriendsBlack(pSoldier, sClosestDisturbance) > 0);
+	// sevenfm (ported): AICheckSuccessfulAttack is fork-only and unavailable in trunk; use cautious base case
+	BOOLEAN fSuccessfulAttack = FALSE;
+	BOOLEAN fSafeSpot = SafeSpot(pSoldier);
+
+	INT16 sLoop;
+	INT32 sCheckGridNo = pSoldier->sGridNo;
+
+	for (sLoop = pSoldier->pathing.usPathIndex; sLoop < pSoldier->pathing.usPathDataSize; sLoop++)
+	{
+		sCheckGridNo = NewGridNo(sCheckGridNo, DirectionInc((UINT8)(pSoldier->pathing.usPathingData[sLoop])));
+
+		// sevenfm: don't check fences
+		if (IsJumpableFencePresentAtGridNo(sCheckGridNo))
+		{
+			continue;
+		}
+
+		// don't go into light at night (includes smoke check)
+		if (InLightAtNight(sCheckGridNo, bLevel) &&
+			!InLightAtNight(pSoldier->sGridNo, pSoldier->pathing.bLevel) &&
+			!InSmoke(sCheckGridNo, bLevel) &&
+			(pSoldier->aiData.bUnderFire || !fSeekEnemy || !SightCoverAtSpot(pSoldier, sCheckGridNo, FALSE) || GetNearestRottingCorpseAIWarning(sCheckGridNo) > 0) &&
+			(fFlankingFriends || !fSuccessfulAttack || !fSeekEnemy) &&
+			!fFriendsBlack)
+		{
+			DebugAI(AI_MSG_INFO, pSoldier, String("in light at night! abort!"));
+			sDangerousSpot = sCheckGridNo;
+			return TRUE;
+		}
+
+		// check for fresh corpses
+		if (fSafeSpot &&
+			CorpseWarning(pSoldier, sCheckGridNo, pSoldier->pathing.bLevel) &&
+			!InSmoke(sCheckGridNo, pSoldier->pathing.bLevel) &&
+			!fFriendsBlack &&
+			(fFlankingFriends || !fSuccessfulAttack || !fSeekEnemy || EnemyCanAttackSpot(pSoldier, sCheckGridNo, bLevel) || InARoom(sCheckGridNo, NULL) && bLevel == 0 || CorpseWarning(pSoldier, sCheckGridNo, bLevel)))
+		{
+			DebugAI(AI_MSG_INFO, pSoldier, String("fresh corpse! abort!"));
+
+			if (!SightCoverAtSpot(pSoldier, sCheckGridNo, TRUE) || InARoom(sCheckGridNo, NULL) && bLevel == 0 || CorpseWarning(pSoldier, sCheckGridNo, bLevel))
+			{
+				sDangerousSpot = sCheckGridNo;
+			}
+			return TRUE;
+		}
+	}
+
+	return FALSE;
+}
+
+// sevenfm (ported): decide whether an enemy soldier should use a sight-cover (smoke/cover) advance, based on soldier class, attitude, morale and current battlefield pressure
+BOOLEAN UseSightCoverAdvance(SOLDIERTYPE *pSoldier)
+{
+	CHECKF(pSoldier);
+
+	if (!SoldierAI(pSoldier))
+	{
+		return FALSE;
+	}
+
+	if (pSoldier->bTeam != ENEMY_TEAM)
+	{
+		return FALSE;
+	}
+
+	if (pSoldier->aiData.bOrders == STATIONARY)
+	{
+		return FALSE;
+	}
+
+	switch (pSoldier->ubSoldierClass)
+	{
+	case SOLDIER_CLASS_ELITE:
+		return TRUE;
+		break;
+	case SOLDIER_CLASS_ARMY:
+		if (pSoldier->aiData.bUnderFire ||
+			pSoldier->aiData.bShock > 0 ||
+			AICheckDefense(pSoldier) ||
+			CorpseWarning(pSoldier, pSoldier->sGridNo, pSoldier->pathing.bLevel) ||
+			CountTeamUnderAttack(pSoldier->bTeam, pSoldier->sGridNo, DAY_VISION_RANGE) > 0 ||
+			CountCorpses(pSoldier, pSoldier->sGridNo, DAY_VISION_RANGE, TRUE, TRUE) > 0)
+		{
+			return TRUE;
+		}
+		break;
+	case SOLDIER_CLASS_ADMINISTRATOR:
+		if (pSoldier->aiData.bUnderFire ||
+			pSoldier->aiData.bShock > 0 ||
+			CorpseWarning(pSoldier, pSoldier->sGridNo, pSoldier->pathing.bLevel) ||
+			CountTeamUnderAttack(pSoldier->bTeam, pSoldier->sGridNo, DAY_VISION_RANGE) > 0 ||
+			CountCorpses(pSoldier, pSoldier->sGridNo, DAY_VISION_RANGE, TRUE, TRUE) > 0)
+		{
+			return TRUE;
+		}
+		break;
+	}
+
+	if (pSoldier->aiData.bAttitude == DEFENSIVE ||
+		pSoldier->aiData.bAttitude == CUNNINGSOLO ||
+		pSoldier->aiData.bAttitude == CUNNINGAID)
+	{
+		return TRUE;
+	}
+
+	if (TeamHighPercentKilled(pSoldier->bTeam))
+	{
+		return TRUE;
+	}
+
+	return FALSE;
+}
+
 // check if we have any sight cover from known enemies at spot
 BOOLEAN AnyCoverAtSpot(SOLDIERTYPE *pSoldier, INT32 sSpot)
 {
@@ -6053,15 +6485,25 @@ UINT32 PrepareThreatlist(SOLDIERTYPE *pSoldier)
 		bPersonalKnowledge = PersonalKnowledge(pSoldier, pOpponent->ubID);
 		bPublicKnowledge = PublicKnowledge(pSoldier->bTeam, pOpponent->ubID);
 
-		// if this opponent is unknown personally and publicly
-		if (bKnowledge == NOT_HEARD_OR_SEEN)
+		// sevenfm (ported): treat the previous attacker as a currently-known threat at his actual location
+		if (pSoldier->ubPreviousAttackerID != NOBODY && pSoldier->ubPreviousAttackerID == pOpponent->ubID)
 		{
-			continue;			// next merc
+			sThreatLoc = pOpponent->sGridNo;
+			bThreatLevel = pOpponent->pathing.bLevel;
+			iThreatCertainty = ThreatPercent[6];
 		}
+		else
+		{
+			// if this opponent is unknown personally and publicly
+			if (bKnowledge == NOT_HEARD_OR_SEEN)
+			{
+				continue;			// next merc
+			}
 
-		sThreatLoc = KnownLocation(pSoldier, pOpponent->ubID);
-		bThreatLevel = KnownLevel(pSoldier, pOpponent->ubID);
-		iThreatCertainty = ThreatPercent[bKnowledge - OLDEST_HEARD_VALUE];
+			sThreatLoc = KnownLocation(pSoldier, pOpponent->ubID);
+			bThreatLevel = KnownLevel(pSoldier, pOpponent->ubID);
+			iThreatCertainty = ThreatPercent[bKnowledge - OLDEST_HEARD_VALUE];
+		}
 
 		// safety check
 		if (TileIsOutOfBounds(sThreatLoc))

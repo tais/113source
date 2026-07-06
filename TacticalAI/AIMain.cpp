@@ -1816,6 +1816,9 @@ void RefreshAI(SOLDIERTYPE *pSoldier)
 		}
 		pSoldier->aiData.bLastAction = AI_ACTION_NONE;
 
+		// sevenfm (ported): reset per-turn cover-seek throttle counter at start of turn so it doesn't accumulate across turns
+		pSoldier->usSkillCounter[SOLDIER_COUNTER_COVER] = 0;
+
 	}
 }
 
@@ -2000,6 +2003,13 @@ INT8 ExecuteAction(SOLDIERTYPE *pSoldier)
         case AI_ACTION_LEAVE_WATER_GAS:       // seek nearest spot of ungassed land
         case AI_ACTION_SEEK_NOISE:            // seek most important noise heard
         case AI_ACTION_RUN_AWAY:              // run away from nearby opponent(s)
+
+			// sevenfm (ported): count how many times we took cover this turn to throttle repeated cover-seeking
+			if (pSoldier->aiData.bAction == AI_ACTION_TAKE_COVER)
+			{
+				pSoldier->usSkillCounter[SOLDIER_COUNTER_COVER]++;
+				DebugAI(AI_MSG_INFO, pSoldier, String("ExecuteAction (AI_ACTION_TAKE_COVER): increment SOLDIER_COUNTER_COVER"));
+			}
 
 			if (!is_networked)
 			{
@@ -2347,7 +2357,9 @@ INT8 ExecuteAction(SOLDIERTYPE *pSoldier)
 				pSoldier->usSoldierFlagMask |= SOLDIER_RAISED_REDALERT;
 
 				// SANDRO - ENEMY TAUNTS
-				PossiblyStartEnemyTaunt( pSoldier, TAUNT_ALERT );
+				// sevenfm (ported): taunt only when raising alert for the first time and some friends are not yet alerted
+				if (!gTacticalStatus.Team[pSoldier->bTeam].bAwareOfOpposition && CountFriendsNotAlerted(pSoldier) > 0)
+					PossiblyStartEnemyTaunt( pSoldier, TAUNT_ALERT );
             }
 			else
 			{
@@ -2754,6 +2766,10 @@ void ATTACKTYPE::InitAttackType(ATTACKTYPE *pAttack)//dnl ch69 140913
 
 void HandleInitialRedAlert( INT8 bTeam, UINT8 ubCommunicate)
 {
+	// sevenfm (ported): even if sector jammed, still alert friends so the team goes STATUS_RED when radio-jammed
+	// (trunk's HandleInitialRedAlert carries no civ group; NON_CIV_GROUP is a no-op filter for all non-CIV teams)
+	AlertFriends(bTeam, NON_CIV_GROUP);
+
 	// Flugente radio operator: if the sector is jammed, no radio communication possible
 	if ( SectorJammed() )
 		return;

@@ -644,6 +644,7 @@ enum {
 	SOLDIER_COUNTER_SPOTTER,				// used to determine wether we are a spotter
 	SOLDIER_COUNTER_ROLE_OBSERVED,			// every turn that the player observes an enemy, the enemies counter is increased. If it is high enough, we know his role
 	SOLDIER_COUNTER_RETREAT,				// use to retreat from position
+	SOLDIER_COUNTER_COVER,					// sevenfm (ported): number of times soldier executed AI_ACTION_TAKE_COVER this turn
 	
 	SOLDIER_COUNTER_MAX = 20,				// enough space for fillers
 };

@@ -1393,6 +1393,12 @@ void CalcBestThrow(SOLDIERTYPE *pSoldier, ATTACKTYPE *pBestThrow)
 					continue;
 				}
 
+				// sevenfm (ported): avoid attacking spots outside of visible world to prevent possible bugs
+				if (!GridNoOnVisibleWorldTile(sGridNo))
+				{
+					continue;
+				}
+
 				if ( PythSpacesAway( pSoldier->sGridNo, sGridNo ) > iTossRange )
 				{
 					// can't throw there!
@@ -3640,6 +3646,10 @@ BOOLEAN GetBestAoEGridNo(SOLDIERTYPE *pSoldier, INT32* pGridNo, INT16 aRadius, U
 				if ((sGridNo < 0) || (sGridNo >= GRIDSIZE))
 					continue;
 
+				// sevenfm (ported): avoid attacking spots outside of visible world to prevent possible bugs
+				if (!GridNoOnVisibleWorldTile(sGridNo))
+					continue;
+
 				if ( PythSpacesAway( currentSoldierGridNo, sGridNo ) > aRadius )
 					continue;
 
@@ -4061,6 +4071,12 @@ void CheckTossAt(SOLDIERTYPE *pSoldier, ATTACKTYPE *pBestThrow, INT32 sTargetSpo
 	pBestThrow->ubPossible = FALSE;
 	pBestThrow->ubChanceToReallyHit = 0;
 	pBestThrow->iAttackValue = 0;
+
+	// sevenfm (ported): safety check - never target off-map/world-edge tiles
+	if (TileIsOutOfBounds(sTargetSpot) || !GridNoOnVisibleWorldTile(sTargetSpot))
+	{
+		return;
+	}
 
 	iTossRange = CalcMaxTossRange(pSoldier, usInHand, TRUE);
 	usGrenade = pSoldier->inv[HANDPOS].usItem;

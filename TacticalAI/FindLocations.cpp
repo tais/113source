@@ -650,6 +650,10 @@ INT32 FindBestNearbyCover(SOLDIERTYPE *pSoldier, INT32 morale, INT32 *piPercentB
 	BOOLEAN fProneCover;
 	UINT8 ubDiff = SoldierDifficultyLevel( pSoldier );
 
+	// sevenfm (ported): cover-seek throttle - each successive cover move this turn requires a bigger improvement
+	INT32 iMinPercentbetter = MIN_PERCENT_BETTER;
+	iMinPercentbetter += iMinPercentbetter * pSoldier->usSkillCounter[SOLDIER_COUNTER_COVER];
+
 	// There's no cover when boxing!
 	if (gTacticalStatus.bBoxingState == BOXING)
 	{
@@ -1198,7 +1202,8 @@ INT32 FindBestNearbyCover(SOLDIERTYPE *pSoldier, INT32 morale, INT32 *piPercentB
 		*piPercentBetter = CalcPercentBetter(iCurrentCoverValue,iBestCoverValue,iCurrentScale,iBestCoverScale);
 
 		// if best cover value found was at least 5% better than our current cover
-		if (*piPercentBetter >= MIN_PERCENT_BETTER)
+		// sevenfm (ported): use throttled threshold that grows with repeated cover-seeking this turn
+		if (*piPercentBetter >= iMinPercentbetter)
 		{
 #ifdef DEBUGDECISIONS
 			STR tempstr;

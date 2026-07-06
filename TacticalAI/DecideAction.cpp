@@ -4047,6 +4047,13 @@ INT8 DecideActionRed(SOLDIERTYPE *pSoldier)
 				}
 			}
 
+			// sevenfm (ported): once the soldier has taken cover this turn, stop further seeking/helping so he commits to cover instead of oscillating
+			if (pSoldier->usSkillCounter[SOLDIER_COUNTER_COVER])
+			{
+				bSeekPts = -99;
+				bHelpPts = -99;
+			}
+
 			if (!gfTurnBasedAI)
 			{
 				// don't search for cover
