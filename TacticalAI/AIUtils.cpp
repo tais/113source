@@ -4847,7 +4847,7 @@ void AlertFriends(INT8 bTeam, UINT8 ubCivGroup)
 	SOLDIERTYPE * pFriend;
 
 	// Run through each friendly.
-	for (UINT8 iCounter = gTacticalStatus.Team[bTeam].bFirstID; iCounter <= gTacticalStatus.Team[bTeam].bLastID; iCounter++)
+	for (SoldierID iCounter = gTacticalStatus.Team[bTeam].bFirstID; iCounter <= gTacticalStatus.Team[bTeam].bLastID; iCounter++)
 	{
 		pFriend = MercPtrs[iCounter];
 
@@ -4868,7 +4868,7 @@ UINT8 CountFriendsNotAlerted(SOLDIERTYPE *pSoldier)
 	UINT8 ubFriendCount = 0;
 
 	// Run through each friendly.
-	for (UINT8 iCounter = gTacticalStatus.Team[pSoldier->bTeam].bFirstID; iCounter <= gTacticalStatus.Team[pSoldier->bTeam].bLastID; iCounter++)
+	for (SoldierID iCounter = gTacticalStatus.Team[pSoldier->bTeam].bFirstID; iCounter <= gTacticalStatus.Team[pSoldier->bTeam].bLastID; iCounter++)
 	{
 		pFriend = MercPtrs[iCounter];
 
@@ -4894,7 +4894,7 @@ INT16 DistanceToClosestNotSeekEnemyFriend( SOLDIERTYPE *pSoldier, INT32 sGridNo 
 	SOLDIERTYPE * pFriend;
 
 	// Run through each friendly.
-	for ( UINT8 iCounter = gTacticalStatus.Team[ pSoldier->bTeam ].bFirstID ; iCounter <= gTacticalStatus.Team[ pSoldier->bTeam ].bLastID ; iCounter ++ )
+	for ( SoldierID iCounter = gTacticalStatus.Team[ pSoldier->bTeam ].bFirstID ; iCounter <= gTacticalStatus.Team[ pSoldier->bTeam ].bLastID ; iCounter ++ )
 	{
 		pFriend = MercPtrs[ iCounter ];
 
