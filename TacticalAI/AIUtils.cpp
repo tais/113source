@@ -5000,6 +5000,24 @@ UINT8 AIDirection(INT32 sSpot1, INT32 sSpot2)
 	return GetDirectionFromCenterCellXYGridNo(sSpot1, sSpot2);
 }
 
+// sevenfm (ported): provide the definition for the AICheckNVG() prototype declared in ai.h
+// (true if the soldier has night/cave vision gear in a head slot) so AI code can gate
+// night-vision-dependent decisions. Was declared-but-undefined in trunk.
+BOOLEAN AICheckNVG( SOLDIERTYPE *pSoldier )
+{
+	CHECKF(pSoldier);
+
+	if( Item[pSoldier->inv[HEAD1POS].usItem].nightvisionrangebonus > 0 ||
+		Item[pSoldier->inv[HEAD1POS].usItem].cavevisionrangebonus > 0 ||
+		Item[pSoldier->inv[HEAD2POS].usItem].nightvisionrangebonus > 0 ||
+		Item[pSoldier->inv[HEAD2POS].usItem].cavevisionrangebonus > 0 )
+	{
+		return TRUE;
+	}
+
+	return FALSE;
+}
+
 BOOLEAN AICheckIsSniper(SOLDIERTYPE *pSoldier)
 {
 	CHECKF(pSoldier);
