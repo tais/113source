@@ -83,10 +83,10 @@ enum
 #define NOSHOOT_NOLOAD			-6
 #define NOSHOOT_NOWEAPON		-7
 
-#define PERCENT_TO_IGNORE_THREAT		50		// any less, use threat value
+#define PERCENT_TO_IGNORE_THREAT		35		// any less, use threat value // sevenfm (ported): changed 50->35 to make AI ignore threat less readily
 #define ACTION_TIMEOUT_CYCLES	50	// # failed cycles through AI
 #define MAX_THREAT_RANGE		400	// 30 tiles worth
-#define MIN_PERCENT_BETTER	5	// 5% improvement in cover is good
+#define MIN_PERCENT_BETTER	10	// 10% improvement in cover is good // sevenfm (ported): changed 5->10 to require larger cover improvement
 
 #define TOSSES_PER_10TURNS		18		// max # of grenades tossable in 10 turns
 #define SHELLS_PER_10TURNS		13		// max # of shells	firable	in 10 turns

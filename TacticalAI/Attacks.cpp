@@ -1422,6 +1422,13 @@ void CalcBestThrow(SOLDIERTYPE *pSoldier, ATTACKTYPE *pBestThrow)
 					continue;
 				}
 
+				// sevenfm (ported): skip tile if the target is inside a room (FLAT_FLOOR) but the blast tile is outside the room
+				if( gpWorldLevelData[sOpponentTile[ubLoop]].ubTerrainID == FLAT_FLOOR &&
+					gpWorldLevelData[sGridNo].ubTerrainID != FLAT_FLOOR )
+				{
+					continue;
+				}
+
 				fSkipLocation = FALSE;
 				// Check to see if we have considered this tile before:
 				for (ubLoop2 = 0; ubLoop2 < ubNumExcludedTiles; ubLoop2++)
@@ -1754,7 +1761,10 @@ void CalcBestStab(SOLDIERTYPE *pSoldier, ATTACKTYPE *pBestStab, BOOLEAN fBladeAt
 			continue;			// next merc
 
 		// if this opponent is not currently in sight (ignore known but unseen!)
-		if (pSoldier->aiData.bOppList[pOpponent->ubID] != SEEN_CURRENTLY)
+		// sevenfm (ported): allow meleeing recently-seen or publicly-known opponents, not only currently-seen
+		if ( pSoldier->aiData.bOppList[pOpponent->ubID] != SEEN_CURRENTLY &&
+			pSoldier->aiData.bOppList[pOpponent->ubID] != SEEN_THIS_TURN &&
+			gbPublicOpplist[pSoldier->bTeam][pOpponent->ubID] != SEEN_CURRENTLY )
 			continue;			// next merc
 
 		// if this opponent is not on the same level
@@ -1811,6 +1821,12 @@ void CalcBestStab(SOLDIERTYPE *pSoldier, ATTACKTYPE *pBestStab, BOOLEAN fBladeAt
 		ubRawAPCost = MinAPsToAttack(pSoldier,pOpponent->sGridNo, FALSE,0) - APBPConstants[AP_CHANGE_TARGET];
 		//NumMessage("ubRawAPCost to stab this opponent = ",ubRawAPCost);
 
+		// sevenfm (ported): clamp raw melee AP cost to a minimum of 1
+		if (ubRawAPCost < 1)
+		{
+			ubRawAPCost = 1;
+		}
+
 
 		// determine if this is a surprise stab (must be next to opponent & unseen)
 		fSurpriseStab = FALSE;		// assume it is not a surprise stab
@@ -1864,7 +1880,8 @@ void CalcBestStab(SOLDIERTYPE *pSoldier, ATTACKTYPE *pBestStab, BOOLEAN fBladeAt
 				ubRawAPCost = ubMinAPCost;
 
 			// sevenfm: 100AP system
-			iHitRate = (pSoldier->bActionPoints * ubChanceToHit) / (ubRawAPCost + ubAimTime * APBPConstants[AP_CLICK_AIM]);
+			// sevenfm (ported): discount the AP spent walking/turning to reach the target
+			iHitRate = ((pSoldier->bActionPoints - ubMinAPCost) * ubChanceToHit) / (ubRawAPCost + ubAimTime * APBPConstants[AP_CLICK_AIM]);
 			//iHitRate = (pSoldier->bActionPoints * ubChanceToHit) / (ubRawAPCost + ubAimTime);
 			//NumMessage("hitRate = ",iHitRate);
 
@@ -2244,6 +2261,9 @@ INT32 EstimateShotDamage(SOLDIERTYPE *pSoldier, SOLDIERTYPE *pOpponent, INT16 ub
 	//		break;
 	//}
 
+	// sevenfm (ported): remember pre-armour damage to credit breath/impact loss on armour-stopped shots
+	INT32 iDamageBeforeArmour = iDamage;
+
 	iDamage -= iTotalProt;
 	//NumMessage("After-protection damage: ",damage);
 
@@ -2253,6 +2273,12 @@ INT32 EstimateShotDamage(SOLDIERTYPE *pSoldier, SOLDIERTYPE *pOpponent, INT16 ub
 	//	iDamage = AMMO_DAMAGE_ADJUSTMENT_HP( iDamage );
 	//}
 	iDamage = (INT32)(iDamage * AmmoTypes[ubAmmoType].afterArmourDamageMultiplier / max(1,AmmoTypes[ubAmmoType].afterArmourDamageDivisor) ) ;
+
+	// sevenfm (ported): credit half of the armour-absorbed damage as estimated breath/impact loss so the AI keeps shooting armoured targets
+	if( iDamage < iDamageBeforeArmour )
+	{
+		iDamage += (iDamageBeforeArmour - iDamage) / 2;
+	}
 
 	if (AmmoTypes[ubAmmoType].monsterSpit )
 	{
@@ -3288,6 +3314,15 @@ BOOLEAN AIDetermineStealingWeaponAttempt( SOLDIERTYPE * pSoldier, SOLDIERTYPE * 
 	{
 		return( FALSE );
 	}
+
+	// sevenfm (ported): don't steal weapons from a cowering or prone enemy to prevent possible bug
+	if( pOpponent->usAnimState == COWERING_PRONE ||
+		pOpponent->usAnimState == COWERING ||
+		gAnimControl[ pOpponent->usAnimState ].ubEndHeight == ANIM_PRONE )
+	{
+		return( FALSE );
+	}
+
 	pSoldier->usUIMovementMode = RUNNING;
 	if( pSoldier->bActionPoints < GetAPsToStealItem( pSoldier, NULL, pOpponent->sGridNo ) )
 	{

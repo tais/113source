@@ -2035,7 +2035,8 @@ INT8 SearchForItems( SOLDIERTYPE * pSoldier, INT8 bReason, UINT16 usItem )
 									DebugAI(AI_MSG_INFO, pSoldier, String("jammed or out of ammo, skip it!"));
 									iTempValue = 0;
 								}
-								else if ( Item[pSoldier->inv[HANDPOS].usItem].usItemClass & IC_WEAPON )
+								// sevenfm (ported): compare deadliness only if weapon in hand is a GUN (not a launcher, knife etc...) so a launcher/knife-armed soldier will pick up a nearby rifle
+								else if ( Item[pSoldier->inv[HANDPOS].usItem].usItemClass & IC_GUN )
 								{
 									DebugAI(AI_MSG_INFO, pSoldier, String("compare with gun in hand"));
 									if (Weapon[pObj->usItem].ubDeadliness > Weapon[pSoldier->inv[HANDPOS].usItem].ubDeadliness)

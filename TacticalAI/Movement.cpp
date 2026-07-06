@@ -516,6 +516,12 @@ INT32 InternalGoAsFarAsPossibleTowards(SOLDIERTYPE *pSoldier, INT32 sDesGrid, IN
 #ifdef DEBUGDECISIONS
 		AIPopMessage("destination Grid # itself not valid, looking around it");
 #endif
+		// sevenfm (ported): if we are already one tile away from target, stop instead of circling an unreachable adjacent target
+		if( PythSpacesAway(pSoldier->sGridNo, sDesGrid) < 2 )
+		{
+			return(NOWHERE);
+		}
+
 		// Commented out this branch for now because bloodcats are constantly failing to find a legal destination in the previous call to legalNPCDestination
 		// Following the function calls deep enough ( GoAsFarAsPossibleTowards -> InternalGoAsFarAsPossibleTowards -> LegalNPCDestination -> NewOKDestination -> InternalOkayToAddStructureToWorld -> OkayToAddStructureToTile) shows that the last one fails when checking if we can add bloodcat's structure onto the tile our merc is
 		// This then results them freezing and staying in place even if they can see our mercs

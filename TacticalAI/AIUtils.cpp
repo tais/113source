@@ -135,24 +135,36 @@ INT8 OKToAttack(SOLDIERTYPE * pSoldier, int target)
 BOOLEAN ConsiderProne( SOLDIERTYPE * pSoldier )
 {
 	INT32		sOpponentGridNo;
-	INT8		bOpponentLevel;
-	INT32		iRange;
 
-	if (pSoldier->aiData.bAIMorale >= MORALE_NORMAL)
+	// sevenfm (ported): admins/green militia go prone only when wounded or under fire
+	if( pSoldier->ubSoldierClass == SOLDIER_CLASS_ADMINISTRATOR ||
+		pSoldier->ubSoldierClass == SOLDIER_CLASS_GREEN_MILITIA )
+	{
+		if( pSoldier->stats.bLife > 3*pSoldier->stats.bLifeMax/4 &&
+			!pSoldier->aiData.bUnderFire )
+		{
+			return( FALSE );
+		}
+	}
+
+	// sevenfm (ported): other soldiers also check range change desire (DEFENSIVE/CUNNING will go prone even with AI morale = 4)
+	if ( RangeChangeDesire(pSoldier) > 3 &&
+		!pSoldier->aiData.bUnderFire &&
+		pSoldier->stats.bLife > 3*pSoldier->stats.bLifeMax/4 )
 	{
 		return( FALSE );
 	}
+
 	// We don't want to go prone if there is a nearby enemy
-	ClosestKnownOpponent( pSoldier, &sOpponentGridNo, &bOpponentLevel );
-	iRange = PythSpacesAway( pSoldier->sGridNo, sOpponentGridNo );
-	if (iRange > 10)
-	{
-		return( TRUE );
-	}
-	else
+	// sevenfm (ported): use quarter of vision range instead of fixed 10 tiles
+	sOpponentGridNo = ClosestKnownOpponent( pSoldier, NULL, NULL );
+	if( !TileIsOutOfBounds(sOpponentGridNo) &&
+		PythSpacesAway( pSoldier->sGridNo, sOpponentGridNo ) < DAY_VISION_RANGE / 4 )
 	{
 		return( FALSE );
 	}
+
+	return( TRUE );
 }
 
 UINT8 StanceChange( SOLDIERTYPE * pSoldier, INT16 ubAttackAPCost )
@@ -2120,6 +2132,12 @@ INT32 ClosestReachableFriendInTrouble(SOLDIERTYPE *pSoldier, BOOLEAN * pfClimbin
 			fCallHelp = TRUE;
 		}
 
+		// sevenfm (ported): also help a friend that has more recently-seen enemies than nearby friends
+		if (CountSeenEnemiesLastTurn(pFriend) > CountNearbyFriends(pFriend, pFriend->sGridNo, DAY_VISION_RANGE / 4))
+		{
+			fCallHelp = TRUE;
+		}
+
 		if (!fCallHelp)
 		{
 			continue;			// next merc
@@ -2375,10 +2393,11 @@ BOOLEAN InLightAtNight( INT32 sGridNo, INT8 bLevel )
 	}
 
 	// could've been placed here, ignore the light
-	if ( InARoom( sGridNo, NULL ) )
+	// sevenfm (ported): always check light in a room so lit indoor tiles count as exposed at night
+	/*if ( InARoom( sGridNo, NULL ) )
 	{
 		return( FALSE );
-	}
+	}*/
 
 	// NB light levels are backwards, so a lower light level means the
 	// spot in question is BRIGHTER
@@ -2782,6 +2801,8 @@ INT32 CalcManThreatValue( SOLDIERTYPE *pEnemy, INT32 sMyGrid, UINT8 ubReduceForC
 INT16 RoamingRange(SOLDIERTYPE *pSoldier, INT32 * pusFromGridNo)
 {
 	BOOL OppPosKnown = FALSE;
+	// sevenfm (ported): track whether soldier is in combat (under fire or saw enemy recently)
+	BOOLEAN fInCombat = FALSE;
 	if (CREATURE_OR_BLOODCAT(pSoldier))
 	{
 		if (pSoldier->aiData.bAlertStatus > STATUS_YELLOW)
@@ -2817,6 +2838,12 @@ INT16 RoamingRange(SOLDIERTYPE *pSoldier, INT32 * pusFromGridNo)
 		}
 	}
 
+	// sevenfm (ported): in combat if under fire or saw an enemy recently
+	if (pSoldier->aiData.bUnderFire || GuySawEnemy(pSoldier))
+	{
+		fInCombat = TRUE;
+	}
+
 	switch (pSoldier->aiData.bOrders)
 	{
 		// JA2 GOLD: give non-NPCs a 5 tile roam range for cover in combat when being shot at
@@ -2831,90 +2858,66 @@ INT16 RoamingRange(SOLDIERTYPE *pSoldier, INT32 * pusFromGridNo)
 			return(5);
 		}
 	case ONGUARD:
-		return(5);
-	case CLOSEPATROL:			
-		if (pSoldier->aiData.bAlertStatus < STATUS_RED)
+		// sevenfm (ported): ONGUARD uses max roaming range once in combat
+		if (!fInCombat)
 		{
 			return(5);
 		}
 		else
 		{
-			if (!OppPosKnown)
-			{
-				return(15);
-			}
-			else
-			{
-				return(30);
-				//return( MAX_ROAMING_RANGE );
-			}
+			return(MAX_ROAMING_RANGE);
 		}
-	case POINTPATROL:			
-		if (pSoldier->aiData.bAlertStatus < STATUS_RED)
-		{
-			return(10);
-		}
-		else
-		{
-			if (!OppPosKnown)
-			{
-				return(20);
-			}
-			else
-			{
-				return(40);
-				//return( MAX_ROAMING_RANGE );
-			}
-		}	 // from nextPatrolGrid, not whereIWas
-	case RNDPTPATROL:			
-		if (pSoldier->aiData.bAlertStatus < STATUS_RED)
-		{
-			return(10);
-		}
-		else
-		{
-			if (!OppPosKnown)
-			{
-				return(20);
-			}
-			else
-			{
-				//return( 40 );
-				return(MAX_ROAMING_RANGE);
-			}
-		}// from nextPatrolGrid, not whereIWas
-	case FARPATROL:				
-		if (pSoldier->aiData.bAlertStatus < STATUS_RED)
+	case CLOSEPATROL:			
+		// sevenfm (ported): max roaming range once enemy position is known
+		if (!OppPosKnown)
 		{
 			return(15);
 		}
 		else
 		{
-			if (!OppPosKnown)
-			{
-				return(30);
-			}
-			else
-			{
-				return(MAX_ROAMING_RANGE);
-			}
+			return(MAX_ROAMING_RANGE);
+		}
+	case POINTPATROL:			
+		// sevenfm (ported): max roaming range once enemy position is known
+		if (!OppPosKnown)
+		{
+			// from nextPatrolGrid, not whereIWas
+			return(10);
+		}
+		else
+		{
+			return(MAX_ROAMING_RANGE);
+		}
+	case RNDPTPATROL:			
+		// sevenfm (ported): max roaming range once enemy position is known
+		if (!OppPosKnown)
+		{
+			// from nextPatrolGrid, not whereIWas
+			return(10);
+		}
+		else
+		{
+			return(MAX_ROAMING_RANGE);
+		}
+	case FARPATROL:				
+		// sevenfm (ported): max roaming range once enemy position is known
+		if (!OppPosKnown)
+		{
+			return(25);
+		}
+		else
+		{
+			return(MAX_ROAMING_RANGE);
 		}
 	case ONCALL:					
-		if (pSoldier->aiData.bAlertStatus < STATUS_RED)
+		// sevenfm (ported): max roaming range once enemy position is known
+		if (!OppPosKnown)
 		{
 			return(10);
 		}
 		else
 		{
-			if (!OppPosKnown)
-			{
-				return(30);
-			}
-			else
-			{
-				//return(50);
-				return(MAX_ROAMING_RANGE);
-			}
+			return(MAX_ROAMING_RANGE);
 		}
 	case SEEKENEMY:				*pusFromGridNo = pSoldier->sGridNo; // from current position!
 		return(MAX_ROAMING_RANGE);
@@ -3859,7 +3862,8 @@ INT8 CalcMoraleNew(SOLDIERTYPE *pSoldier)
 	}
 
 	// make idiot administrators more aggressive
-	if ( pSoldier->ubSoldierClass == SOLDIER_CLASS_ADMINISTRATOR || pSoldier->ubSoldierClass == SOLDIER_CLASS_BANDIT )
+	// sevenfm (ported): also make non-neutral civilians more aggressive
+	if ( pSoldier->ubSoldierClass == SOLDIER_CLASS_ADMINISTRATOR || pSoldier->ubSoldierClass == SOLDIER_CLASS_BANDIT || (pSoldier->bTeam == CIV_TEAM && !pSoldier->aiData.bNeutral) )
 	{
 		bMoraleCategory += 2;
 	}

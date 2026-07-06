@@ -926,6 +926,15 @@ INT8 DecideActionGreen(SOLDIERTYPE *pSoldier)
 			}
 		}
 
+		// sevenfm (ported): raise red alert if a planted bomb is detected nearby
+		if( !(pSoldier->usSoldierFlagMask & SOLDIER_RAISED_REDALERT) &&
+			!gTacticalStatus.Team[pSoldier->bTeam].bAwareOfOpposition &&
+			pSoldier->aiData.bAlertStatus < STATUS_RED &&
+			FindBombNearby(pSoldier, pSoldier->sGridNo, BOMB_DETECTION_RANGE))
+		{
+			return( AI_ACTION_RED_ALERT );
+		}
+
 		////////////////////////////////////////////////////////////////////////////
 		// IF YOU SEE CAPTURED FRIENDS, FREE THEM!
 		////////////////////////////////////////////////////////////////////////////
@@ -1648,6 +1657,15 @@ INT8 DecideActionYellow(SOLDIERTYPE *pSoldier)
 
 	if( gGameExternalOptions.bNewTacticalAIBehavior )
 	{
+		// sevenfm (ported): raise red alert if a planted bomb is detected nearby
+		if( !(pSoldier->usSoldierFlagMask & SOLDIER_RAISED_REDALERT) &&
+			!gTacticalStatus.Team[pSoldier->bTeam].bAwareOfOpposition &&
+			pSoldier->aiData.bAlertStatus < STATUS_RED &&
+			FindBombNearby(pSoldier, pSoldier->sGridNo, BOMB_DETECTION_RANGE))
+		{
+			return( AI_ACTION_RED_ALERT );
+		}
+
 		////////////////////////////////////////////////////////////////////////////
 		// IF YOU SEE CAPTURED FRIENDS, FREE THEM!
 		////////////////////////////////////////////////////////////////////////////
@@ -2932,7 +2950,8 @@ INT8 DecideActionRed(SOLDIERTYPE *pSoldier)
 			CheckIfShotPossible(pSoldier, &BestShot);
 			DebugMsg(TOPIC_JA2, DBG_LEVEL_3, String("decideactionred: is sniper shot possible? = %d, CTH = %d", BestShot.ubPossible, BestShot.ubChanceToReallyHit));
 
-			if (BestShot.ubPossible && BestShot.ubChanceToReallyHit > 50)
+			// sevenfm (ported): changed sniper shot min CTH from 50 to 25
+			if (BestShot.ubPossible && BestShot.ubChanceToReallyHit > 25)
 			{
 				// then do it!  The functions have already made sure that we have a
 				// pair of worthy opponents, etc., so we're not just wasting our time
@@ -3872,6 +3891,36 @@ INT8 DecideActionRed(SOLDIERTYPE *pSoldier)
 			gubNPCAPBudget = 0;
 		}
 
+		// sevenfm (ported): if lying prone in a building with a close visible enemy, stand to crouch first so we can see/shoot
+		if( gAnimControl[ pSoldier->usAnimState ].ubEndHeight == ANIM_PRONE &&
+			IsValidStance( pSoldier, ANIM_CROUCH ) &&
+			pSoldier->bActionPoints == pSoldier->bInitialActionPoints &&
+			GetAPsToChangeStance( pSoldier, ANIM_CROUCH ) <= pSoldier->bActionPoints &&
+			!TileIsOutOfBounds(sClosestOpponent) &&
+			PythSpacesAway( pSoldier->sGridNo, sClosestOpponent ) <= DAY_VISION_RANGE/2 &&
+			InARoom(pSoldier->sGridNo, NULL) )
+		{
+			// maybe raise weapon after crouching
+			if( PythSpacesAway( pSoldier->sGridNo, sClosestOpponent ) < (pSoldier->GetMaxDistanceVisible(sClosestOpponent) * 3) / 2 ||
+				PreRandom( 4 ) == 0 )
+			{
+				// determine direction from this soldier to the closest opponent
+				ubOpponentDir = GetDirectionFromCenterCellXYGridNo(pSoldier->sGridNo, sClosestOpponent);
+
+				if( PickSoldierReadyAnimation( pSoldier, FALSE, FALSE ) != INVALID_ANIMATION &&
+					AIGunInHandScoped(pSoldier) &&
+					!WeaponReady(pSoldier) &&
+					pSoldier->ubDirection == ubOpponentDir &&
+					GetAPsToReadyWeapon( pSoldier, PickSoldierReadyAnimation( pSoldier, FALSE, FALSE ) ) + GetAPsToChangeStance( pSoldier, ANIM_CROUCH ) <= pSoldier->bActionPoints )
+				{
+					pSoldier->aiData.bNextAction = AI_ACTION_RAISE_GUN;
+				}
+			}
+
+			pSoldier->aiData.usActionData = ANIM_CROUCH;
+			return(AI_ACTION_CHANGE_STANCE);
+		}
+
 		// if we can move at least 1 square's worth
 		// and have more APs than we want to reserve
 		DebugMsg (TOPIC_JA2,DBG_LEVEL_3,String("decideactionred: can we move? = %d, APs = %d",ubCanMove,pSoldier->bActionPoints));
@@ -3947,6 +3996,36 @@ INT8 DecideActionRed(SOLDIERTYPE *pSoldier)
 			if (!InARoom(pSoldier->sGridNo, NULL))
 			{
 				bWatchPts -= CountNearbyFriends(pSoldier, pSoldier->sGridNo, TACTICAL_RANGE / 8);
+			}
+
+			// sevenfm (ported): penalize watching a spot friends already cover, that is beyond gun range, or unlit at night without NVG
+			bHighestWatchLoc = GetHighestVisibleWatchedLoc(pSoldier->ubID);
+			if (bHighestWatchLoc != -1)
+			{
+				INT32 sWatchSpot = gsWatchedLoc[pSoldier->ubID][bHighestWatchLoc];
+				INT8 bWatchLevel = gbWatchedLocLevel[pSoldier->ubID][bHighestWatchLoc];
+
+				if (!TileIsOutOfBounds(sWatchSpot))
+				{
+					if (pSoldier->aiData.bOrders != STATIONARY && pSoldier->aiData.bOrders != SNIPER)
+					{
+						bWatchPts -= CountFriendsBlack(pSoldier, sWatchSpot);
+
+						// penalize watching at night if soldier has no NVG and watched location is not in light
+						if (NightLight() &&
+							!InLightAtNight(sWatchSpot, bWatchLevel) &&
+							!AICheckNVG(pSoldier) &&
+							!InARoom(pSoldier->sGridNo, NULL))
+						{
+							bWatchPts -= 1;
+						}
+
+						if (AIGunRange(pSoldier) < PythSpacesAway(pSoldier->sGridNo, sWatchSpot))
+						{
+							bWatchPts -= 1;
+						}
+					}
+				}
 			}
 
 			// sevenfm: don't help if seen enemy recently or under fire
@@ -4528,6 +4607,9 @@ INT8 DecideActionRed(SOLDIERTYPE *pSoldier)
 			// and the opponent is close enough that he could possibly be seen
 			// note, have to change this to use the level returned from ClosestKnownOpponent
 			sDistVisible = pSoldier->GetMaxDistanceVisible(sClosestOpponent, 0, CALC_FROM_ALL_DIRS );
+
+			// sevenfm (ported): better use increased range as we may have a scope or the enemy may be approaching
+			sDistVisible = 3 * sDistVisible / 2;
 
 			if ((pSoldier->ubDirection != ubOpponentDir) && (PythSpacesAway(pSoldier->sGridNo,sClosestOpponent) <= sDistVisible))
 			{
@@ -5267,6 +5349,13 @@ INT16 ubMinAPCost;
 						return( pSoldier->aiData.bAction );
 					}
 				}
+				// sevenfm (ported): allow enemy team to charge and attack with hands when the gun is unusable
+				else if( pSoldier->bTeam == ENEMY_TEAM && ubCanMove )
+				{
+					pSoldier->aiData.bAIMorale = MORALE_FEARLESS;
+					bCanAttack = TRUE;
+					fTryPunching = TRUE;
+				}
 				else
 				{
 					bCanAttack = FALSE;
@@ -5756,6 +5845,18 @@ INT16 ubMinAPCost;
 		//////////////////////////////////////////////////////////////////////////
 		DebugMsg (TOPIC_JA2,DBG_LEVEL_3,"CHOOSE THE BEST TYPE OF ATTACK OUT OF THOSE FOUND TO BE POSSIBLE");
 		BestAttack.iAttackValue = 0;
+
+		// sevenfm (ported): knife (not shoot) prone zombies that need headshots - bullets can't kill a lying zombie
+		if (BestShot.ubPossible &&
+			BestShot.ubOpponent != NOBODY &&
+			BestShot.ubOpponent->IsZombie() &&
+			gAnimControl[BestShot.ubOpponent->usAnimState].ubEndHeight == ANIM_PRONE &&
+			gGameExternalOptions.fZombieOnlyHeadshotsWork &&
+			BestStab.ubPossible &&
+			Item[pSoldier->inv[BestStab.bWeaponIn].usItem].usItemClass & IC_BLADE)
+		{
+			BestShot.ubPossible = FALSE;
+		}
 
 		if (BestShot.ubPossible)
 		{
@@ -6291,6 +6392,106 @@ INT16 ubMinAPCost;
 		{
 			DebugAI(AI_MSG_TOPIC, pSoldier, String("[Prepare shooting]"));
 
+			// sevenfm (ported): dynamically decide shot location (legs to slow, head vs armored/prone torso)
+			if (!TANK(pSoldier) && BestAttack.ubOpponent != NOBODY)
+			{
+				UINT32	uiRoll;
+				UINT8	ubChanceLegs = 0;
+				UINT8	ubChanceHead = 0;
+				INT16	sDistance = PythSpacesAway(pSoldier->sGridNo, BestAttack.ubOpponent->sGridNo);
+				INT16	sMaxDistance = (DAY_VISION_RANGE / 2);
+				UINT8	ubRealCTH = (UINT8)BestAttack.ubChanceToReallyHit;
+				UINT32	uiCTGT_Legs, uiCTGT_Torso, uiCTGT_Head;
+
+				uiCTGT_Legs = SoldierToSoldierBodyPartChanceToGetThrough( pSoldier, BestAttack.ubOpponent, AIM_SHOT_LEGS );
+				uiCTGT_Torso = SoldierToSoldierBodyPartChanceToGetThrough( pSoldier, BestAttack.ubOpponent, AIM_SHOT_TORSO );
+				uiCTGT_Head = SoldierToSoldierBodyPartChanceToGetThrough( pSoldier, BestAttack.ubOpponent, AIM_SHOT_HEAD );
+
+				// check legs/head only if target is not prone
+				if( gAnimControl[ BestAttack.ubOpponent->usAnimState ].ubEndHeight != ANIM_PRONE )
+				{
+					// check if leg shot is possible
+					if( uiCTGT_Legs > 0 )
+					{
+						// basic chance to shoot legs
+						ubChanceLegs = 15;
+
+						// don't shoot legs at close distance
+						if( sDistance < sMaxDistance )
+						{
+							ubChanceLegs = ubChanceLegs * sDistance / sMaxDistance;
+						}
+						// when using NCTH system, shoot legs more often
+						else if( UsingNewCTHSystem() )
+						{
+							ubChanceLegs += 15;
+						}
+						// don't waste bullets shooting at legs with low CTH
+						ubChanceLegs = ubChanceLegs * ubRealCTH / 100;
+					}
+
+					// check if head shot is possible
+					if( uiCTGT_Head > 0 )
+					{
+						// basic chance to shoot head
+						ubChanceHead = 6;
+
+						// snipers shoot at heads more often
+						if( HAS_SKILL_TRAIT( pSoldier, SNIPER_NT ) )
+						{
+							ubChanceHead += 5 * NUM_SKILL_TRAITS( pSoldier, SNIPER_NT );
+						}
+
+						// if we just hit our enemy, aim at head if have good CTH
+						if( pSoldier->sLastTarget == BestAttack.sTarget && pSoldier->aiData.bLastAttackHit )
+						{
+							ubChanceHead += ubRealCTH / 4;
+						}
+
+						if (BestAttack.ubOpponent->IsZombie())
+						{
+							if (gGameExternalOptions.fZombieOnlyHeadshotsWork)
+								ubChanceHead += 50;
+							else if (gGameExternalOptions.fZombieOnlyHeadShotsPermanentlyKill)
+								ubChanceHead += 25;
+						}
+
+						// don't waste bullets shooting at heads with low CTH
+						ubChanceHead = ubChanceHead * (100 + ubRealCTH) / 200;
+					}
+				}
+
+				// randomly decide hit location
+				uiRoll = PreRandom( 100 );
+
+				if (uiRoll < ubChanceLegs)
+				{
+					pSoldier->bAimShotLocation = AIM_SHOT_LEGS;
+				}
+				else if (uiRoll > 100 - ubChanceHead)
+				{
+					pSoldier->bAimShotLocation = AIM_SHOT_HEAD;
+				}
+				else
+				{
+					pSoldier->bAimShotLocation = AIM_SHOT_TORSO;
+				}
+
+				// maybe switch to torso
+				if( pSoldier->bAimShotLocation == AIM_SHOT_LEGS &&
+					uiCTGT_Torso > uiCTGT_Legs * 2 )
+				{
+					pSoldier->bAimShotLocation = AIM_SHOT_TORSO;
+				}
+				// maybe switch to head (check that target is not prone)
+				if( pSoldier->bAimShotLocation == AIM_SHOT_TORSO &&
+					uiCTGT_Head > uiCTGT_Torso * 2 &&
+					gAnimControl[ BestAttack.ubOpponent->usAnimState ].ubEndHeight != ANIM_PRONE )
+				{
+					pSoldier->bAimShotLocation = AIM_SHOT_HEAD;
+				}
+			}
+
 			//////////////////////////////////////////////////////////////////////////
 			// IF ENOUGH APs TO BURST, RANDOM CHANCE OF DOING SO
 			//////////////////////////////////////////////////////////////////////////
@@ -6643,6 +6844,44 @@ L_NEWAIM:
 				{
 					pSoldier->aiData.bAimTime = (gGameExternalOptions.fEnhancedCloseCombatSystem ? gSkillTraitValues.ubModifierForAPsAddedOnAimedBladedAttackes : 6);
 				}
+			}
+		}
+
+		// sevenfm (ported): dynamically decide stab location (torso by default, head if target not prone)
+		if (ubBestAttackAction == AI_ACTION_KNIFE_MOVE && BestAttack.ubOpponent != NOBODY)
+		{
+			UINT32	uiRoll;
+			UINT8	ubChanceHead = 0;
+			UINT8	ubRealCTH = (UINT8)BestAttack.ubChanceToReallyHit;
+
+			// by default stab at torso
+			pSoldier->bAimShotLocation = AIM_SHOT_TORSO;
+
+			// attack to head randomly
+			if( gAnimControl[ BestAttack.ubOpponent->usAnimState ].ubEndHeight != ANIM_PRONE )
+			{
+				ubChanceHead = 6;
+
+				if( HAS_SKILL_TRAIT(pSoldier, MARTIAL_ARTS_NT))
+				{
+					ubChanceHead += 5 * NUM_SKILL_TRAITS(pSoldier, MARTIAL_ARTS_NT);
+				}
+
+				ubChanceHead += ubRealCTH / 2;
+
+				ubChanceHead = ubChanceHead * ubRealCTH / 100;
+			}
+
+			// randomly decide hit location
+			uiRoll = PreRandom( 100 );
+
+			if (uiRoll > 100 - ubChanceHead)
+			{
+				pSoldier->bAimShotLocation = AIM_SHOT_HEAD;
+			}
+			else
+			{
+				pSoldier->bAimShotLocation = AIM_SHOT_TORSO;
 			}
 		}
 
