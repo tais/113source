@@ -110,7 +110,8 @@ typedef enum
 	AI_ACTION_DOCTOR_SELF,			// added by Flugente: AI-ONLY! bandage/surgery on self. DO NOT USE THIS FOR MERCS!!!
 	AI_ACTION_SELFDETONATE,			// added by Flugente: blow up an explosive in own inventory
 	AI_ACTION_STOP_MEDIC,			// sevenfm: stop giving aid animation
-	AI_ACTION_LAST = AI_ACTION_STOP_MEDIC
+	AI_ACTION_HANDLE_ITEM,			// sevenfm (ported): use item in hand (cut fence with wirecutters)
+	AI_ACTION_LAST = AI_ACTION_HANDLE_ITEM
 } ActionType;
 
 
@@ -295,6 +296,14 @@ UINT16 CountFriendsInDirection( SOLDIERTYPE *pSoldier, INT32 sTargetGridNo );
 BOOLEAN GuySawEnemy( SOLDIERTYPE * pSoldier, UINT8 ubMax = SEEN_3_TURNS_AGO );
 UINT16 CountNearbyFriends( SOLDIERTYPE *pSoldier, INT32 sGridNo, UINT8 ubDistance );
 UINT8 CountNearbyFriendsLastAttackHit( SOLDIERTYPE *pSoldier, INT32 sGridNo, UINT8 ubDistance );
+// sevenfm (ported): Push-3 FOUNDATION helpers
+BOOLEAN AICheckSuccessfulAttack(SOLDIERTYPE *pSoldier, BOOLEAN fGroup);
+BOOLEAN LastTargetSuppressed( SOLDIERTYPE *pSoldier );
+BOOLEAN LastTargetCollapsed( SOLDIERTYPE *pSoldier );
+UINT8 CountFriendsLastAttackHit(SOLDIERTYPE *pSoldier, INT32 sGridNo, INT16 sDistance);
+UINT8 CountNearbyNeutrals(SOLDIERTYPE *pSoldier, INT32 sGridNo, INT16 sDistance);
+UINT8 CountKnownEnemiesInDirection(SOLDIERTYPE *pSoldier, UINT8 ubDirection, INT16 sDistance, BOOLEAN fAdjacent);
+BOOLEAN FindFenceAroundSpot(INT32 sSpot);
 UINT8 CountFriendsFlankSameSpot(SOLDIERTYPE *pSoldier, INT32 sSpot = NOWHERE);
 UINT8 CountFriendsBlack( SOLDIERTYPE *pSoldier, INT32 sClosestOpponent = NOWHERE );
 UINT16 CountTeamUnderAttack(INT8 bTeam, INT32 sGridNo, INT16 sDistance);

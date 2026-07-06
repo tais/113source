@@ -2463,6 +2463,309 @@ INT8 DecideActionYellow(SOLDIERTYPE *pSoldier)
 }
 
 
+// sevenfm (ported): Push-3 decision functions. Defined here (before DecideActionRed / DecideActionBlack)
+// so their call-sites compile without separate forward declarations. All helpers they call
+// (AICheckSuccessfulAttack, CountFriendsLastAttackHit, CheckTossGrenadeSpecial, CountNearbyNeutrals,
+// CountKnownEnemiesInDirection, FindWirecutters, FindFenceAroundSpot, FindConcertina) plus the
+// AI_ACTION_HANDLE_ITEM enum/executor were applied by the Push-3 foundation and already exist in trunk.
+
+// sevenfm (ported):
+// Direct 1:1 port -- every symbol verified present in trunk with matching signatures:
+//   ClosestKnownOpponent, SoldierAI, CheckInitialAP(), gfTurnBasedAI, aiData.bUnderFire/bOrders/bAIMorale,
+//   SEEKENEMY, MORALE_CONFIDENT, TileIsOutOfBounds, PythSpacesAway, TACTICAL_RANGE, Chance,
+//   SoldierDifficultyLevel, GetAPsToCutFence, GetAPsToLook, FindFenceAroundSpot(ported),
+//   FindWirecutters(ported), AIDirection, NewGridNo, DirectionInc, IsCuttableWireFenceAtGridNo,
+//   IsLocationSittable, EstimatePlotPath(9-arg), RUNNING, bStealthMode, APBPConstants[AP_MAXIMUM],
+//   RearrangePocket, HANDPOS, FOREVER, InternalIsValidStance, gAnimControl[].ubEndHeight,
+//   gOneCDirection, gOneCCDirection, DebugAI(AI_MSG_INFO,...), String, AI_ACTION_CHANGE_FACING.
+INT8 DecideUseWirecutters(SOLDIERTYPE *pSoldier)
+{
+	INT32 sOpponentGridNo;
+	INT8 bOpponentLevel;
+	INT32 sClosestOpponent = ClosestKnownOpponent(pSoldier, &sOpponentGridNo, &bOpponentLevel);
+	INT8 bWirecutterSlot = FindWirecutters(pSoldier);
+
+	if (bWirecutterSlot != NO_SLOT &&
+		SoldierAI(pSoldier) &&
+		(pSoldier->CheckInitialAP() || gfTurnBasedAI) &&
+		!pSoldier->aiData.bUnderFire &&
+		pSoldier->pathing.bLevel == 0 &&
+		pSoldier->aiData.bOrders == SEEKENEMY &&
+		pSoldier->aiData.bAIMorale >= MORALE_CONFIDENT &&
+		!TileIsOutOfBounds(sClosestOpponent) &&
+		PythSpacesAway(pSoldier->sGridNo, sClosestOpponent) > TACTICAL_RANGE / 4 &&
+		Chance(SoldierDifficultyLevel(pSoldier) * 20) &&
+		pSoldier->bActionPoints >= GetAPsToCutFence(pSoldier) + GetAPsToLook(pSoldier) &&
+		FindFenceAroundSpot(pSoldier->sGridNo))
+	{
+		UINT8 ubDesiredDir = AIDirection(pSoldier->sGridNo, sClosestOpponent);
+		UINT8 ubCheckDir;
+		INT32 sNewSpot;
+		INT32 sNextSpot;
+		INT32 sPathCost, sNewPathCost;
+		INT32 sOriginalGridNo;
+
+		// cannot cut fence diagonally
+		if (ubDesiredDir % 2 == 0)
+		{
+			ubCheckDir = ubDesiredDir;
+			sNewSpot = NewGridNo(pSoldier->sGridNo, DirectionInc(ubCheckDir));
+			sNextSpot = NewGridNo(sNewSpot, DirectionInc(ubCheckDir));
+
+			if (sNewSpot != pSoldier->sGridNo &&
+				sNextSpot != sNewSpot &&
+				IsCuttableWireFenceAtGridNo(sNewSpot) &&
+				IsLocationSittable(sNextSpot, pSoldier->pathing.bLevel))
+			{
+				sPathCost = EstimatePlotPath(pSoldier, sClosestOpponent, FALSE, FALSE, FALSE, RUNNING, pSoldier->bStealthMode, FALSE, 0);
+				sOriginalGridNo = pSoldier->sGridNo;
+				pSoldier->sGridNo = sNewSpot;
+				sNewPathCost = EstimatePlotPath(pSoldier, sClosestOpponent, FALSE, FALSE, FALSE, RUNNING, pSoldier->bStealthMode, FALSE, 0);
+				pSoldier->sGridNo = sOriginalGridNo;
+
+				if (sNewPathCost > 0 && (sPathCost == 0 || sPathCost > sNewPathCost && sPathCost - sNewPathCost > APBPConstants[AP_MAXIMUM]))
+				{
+					if (pSoldier->ubDirection == ubCheckDir)
+					{
+						RearrangePocket(pSoldier, HANDPOS, bWirecutterSlot, FOREVER);
+						pSoldier->aiData.usActionData = sNewSpot;
+						return AI_ACTION_HANDLE_ITEM;
+					}
+					else if (pSoldier->InternalIsValidStance(ubCheckDir, gAnimControl[pSoldier->usAnimState].ubEndHeight))
+					{
+						DebugAI(AI_MSG_INFO, pSoldier, String("turn before cutting fence"));
+						RearrangePocket(pSoldier, HANDPOS, bWirecutterSlot, FOREVER);
+						pSoldier->aiData.usActionData = ubCheckDir;
+						pSoldier->aiData.bNextAction = AI_ACTION_HANDLE_ITEM;
+						pSoldier->aiData.usNextActionData = sNewSpot;
+						return AI_ACTION_CHANGE_FACING;
+					}
+				}
+			}
+		}
+		// try adjacent directions
+		else
+		{
+			ubCheckDir = gOneCDirection[ubDesiredDir];
+			sNewSpot = NewGridNo(pSoldier->sGridNo, DirectionInc(ubCheckDir));
+			sNextSpot = NewGridNo(sNewSpot, DirectionInc(ubCheckDir));
+
+			if (sNewSpot != pSoldier->sGridNo &&
+				sNextSpot != sNewSpot &&
+				IsCuttableWireFenceAtGridNo(sNewSpot) &&
+				IsLocationSittable(sNextSpot, pSoldier->pathing.bLevel))
+			{
+				sPathCost = EstimatePlotPath(pSoldier, sClosestOpponent, FALSE, FALSE, FALSE, RUNNING, pSoldier->bStealthMode, FALSE, 0);
+				sOriginalGridNo = pSoldier->sGridNo;
+				pSoldier->sGridNo = sNewSpot;
+				sNewPathCost = EstimatePlotPath(pSoldier, sClosestOpponent, FALSE, FALSE, FALSE, RUNNING, pSoldier->bStealthMode, FALSE, 0);
+				pSoldier->sGridNo = sOriginalGridNo;
+
+				if (sNewPathCost > 0 && (sPathCost == 0 || sPathCost > sNewPathCost && sPathCost - sNewPathCost > APBPConstants[AP_MAXIMUM]))
+				{
+					if (pSoldier->ubDirection == ubCheckDir)
+					{
+						RearrangePocket(pSoldier, HANDPOS, bWirecutterSlot, FOREVER);
+						pSoldier->aiData.usActionData = sNewSpot;
+						return AI_ACTION_HANDLE_ITEM;
+					}
+					else if (pSoldier->InternalIsValidStance(ubCheckDir, gAnimControl[pSoldier->usAnimState].ubEndHeight))
+					{
+						RearrangePocket(pSoldier, HANDPOS, bWirecutterSlot, FOREVER);
+						pSoldier->aiData.usActionData = ubCheckDir;
+						pSoldier->aiData.bNextAction = AI_ACTION_HANDLE_ITEM;
+						pSoldier->aiData.usNextActionData = sNewSpot;
+						return AI_ACTION_CHANGE_FACING;
+					}
+				}
+			}
+
+			ubCheckDir = gOneCCDirection[ubDesiredDir];
+			sNewSpot = NewGridNo(pSoldier->sGridNo, DirectionInc(ubCheckDir));
+			sNextSpot = NewGridNo(sNewSpot, DirectionInc(ubCheckDir));
+
+			if (sNewSpot != pSoldier->sGridNo &&
+				sNextSpot != sNewSpot &&
+				IsCuttableWireFenceAtGridNo(sNewSpot) &&
+				IsLocationSittable(sNextSpot, pSoldier->pathing.bLevel))
+			{
+				sPathCost = EstimatePlotPath(pSoldier, sClosestOpponent, FALSE, FALSE, FALSE, RUNNING, pSoldier->bStealthMode, FALSE, 0);
+				sOriginalGridNo = pSoldier->sGridNo;
+				pSoldier->sGridNo = sNewSpot;
+				sNewPathCost = EstimatePlotPath(pSoldier, sClosestOpponent, FALSE, FALSE, FALSE, RUNNING, pSoldier->bStealthMode, FALSE, 0);
+				pSoldier->sGridNo = sOriginalGridNo;
+
+				if (sNewPathCost > 0 && (sPathCost == 0 || sPathCost > sNewPathCost && sPathCost - sNewPathCost > APBPConstants[AP_MAXIMUM]))
+				{
+					if (pSoldier->ubDirection == ubCheckDir)
+					{
+						RearrangePocket(pSoldier, HANDPOS, bWirecutterSlot, FOREVER);
+						pSoldier->aiData.usActionData = sNewSpot;
+						return AI_ACTION_HANDLE_ITEM;
+					}
+					else if (pSoldier->InternalIsValidStance(ubCheckDir, gAnimControl[pSoldier->usAnimState].ubEndHeight))
+					{
+						RearrangePocket(pSoldier, HANDPOS, bWirecutterSlot, FOREVER);
+						pSoldier->aiData.usActionData = ubCheckDir;
+						pSoldier->aiData.bNextAction = AI_ACTION_HANDLE_ITEM;
+						pSoldier->aiData.usNextActionData = sNewSpot;
+						return AI_ACTION_CHANGE_FACING;
+					}
+				}
+			}
+		}
+	}
+
+	return -1;
+}
+
+// sevenfm (ported):
+INT8 DecideUseGrenadeSpecial(SOLDIERTYPE *pSoldier)
+{
+	ATTACKTYPE BestThrow;
+	DebugAI(AI_MSG_TOPIC, pSoldier, String("[Grenade for special purpose]"));
+	if (gfTurnBasedAI && !gfHiddenInterrupt && !gTacticalStatus.fInterruptOccurred &&
+		pSoldier->bActionPoints >= APBPConstants[AP_MINIMUM] &&
+		pSoldier->bActionPoints == pSoldier->bInitialActionPoints &&
+		pSoldier->aiData.bOrders != STATIONARY &&
+		pSoldier->aiData.bAIMorale >= MORALE_CONFIDENT &&
+		Chance(20 * SoldierDifficultyLevel(pSoldier) + 10 * CountThrowableGrenades(pSoldier, EXPLOSV_NORMAL, 10)))
+	{
+		CheckTossGrenadeSpecial(pSoldier, &BestThrow);
+		if (BestThrow.ubPossible && Chance(BestThrow.iAttackValue))
+		{
+			if (BestThrow.bWeaponIn != HANDPOS)
+				RearrangePocket(pSoldier, HANDPOS, BestThrow.bWeaponIn, FOREVER);
+			INT16 sTooCloseDistance = DAY_VISION_RANGE / 4;
+			if (PythSpacesAway(pSoldier->sGridNo, BestThrow.sTarget) < sTooCloseDistance ||
+				CountNearbyFriends(pSoldier, BestThrow.sTarget, sTooCloseDistance) > 0 ||
+				CountNearbyNeutrals(pSoldier, BestThrow.sTarget, sTooCloseDistance) > 0)
+			{
+				if (Explosive[Item[pSoldier->inv[HANDPOS].usItem].ubClassIndex].ubType == EXPLOSV_NORMAL)
+					pSoldier->inv[HANDPOS][0]->data.sObjectFlag |= DELAYED_GRENADE_EXPLOSION;
+			}
+			if (gAnimControl[pSoldier->usAnimState].ubEndHeight < BestThrow.ubStance &&
+				pSoldier->InternalIsValidStance(AIDirection(pSoldier->sGridNo, BestThrow.sTarget), BestThrow.ubStance))
+			{
+				pSoldier->aiData.usActionData = BestThrow.ubStance;
+				pSoldier->aiData.bNextAction = AI_ACTION_TOSS_PROJECTILE;
+				pSoldier->aiData.usNextActionData = BestThrow.sTarget;
+				pSoldier->aiData.bNextTargetLevel = BestThrow.bTargetLevel;
+				pSoldier->aiData.bAimTime = BestThrow.ubAimTime;
+				return AI_ACTION_CHANGE_STANCE;
+			}
+			else
+			{
+				pSoldier->aiData.usActionData = BestThrow.sTarget;
+				pSoldier->bTargetLevel = BestThrow.bTargetLevel;
+				pSoldier->aiData.bAimTime = BestThrow.ubAimTime;
+			}
+			return(AI_ACTION_TOSS_PROJECTILE);
+		}
+	}
+	return -1;
+}
+
+// sevenfm (ported): throw a smoke grenade onto an open-ground tile along the soldier's own advance
+// path (no sight cover, mid-range band) to screen its rush toward the enemy. Body is unchanged from
+// vr -- every idiom already compiles in trunk (see the near-identical inlined block at
+// DecideAction.cpp:6144). Only its two gate helpers (AICheckSuccessfulAttack, CountFriendsLastAttackHit)
+// are newly ported (below). Returns existing actions only; no new executor.
+INT8 DecideSmokeCoverMovement(SOLDIERTYPE *pSoldier, INT32 sClosestDisturbance)
+{
+	DebugAI(AI_MSG_TOPIC, pSoldier, String("[Smoke to cover movement]"));
+
+	ATTACKTYPE BestThrow;
+
+	if (gfTurnBasedAI &&
+		SoldierAI(pSoldier) &&
+		FindThrowableGrenade(pSoldier, EXPLOSV_SMOKE) != EXPLOSV_SMOKE &&
+		pSoldier->bActionPoints >= APBPConstants[AP_MINIMUM] &&
+		pSoldier->bActionPoints == pSoldier->bInitialActionPoints &&
+		!TileIsOutOfBounds(sClosestDisturbance) &&
+		pSoldier->aiData.bAIMorale >= MORALE_CONFIDENT &&
+		!AICheckIsSniper(pSoldier) &&
+		!AICheckIsMachinegunner(pSoldier) &&
+		pSoldier->aiData.bOrders != STATIONARY &&
+		!AICheckSuccessfulAttack(pSoldier, TRUE) &&
+		(pSoldier->aiData.bUnderFire ||
+		CountSeenEnemiesLastTurn(pSoldier) > CountNearbyFriends(pSoldier, pSoldier->sGridNo, DAY_VISION_RANGE / 2) ||
+		CountTeamUnderAttack(pSoldier->bTeam, pSoldier->sGridNo, DAY_VISION_RANGE) > CountFriendsLastAttackHit(pSoldier, pSoldier->sGridNo, DAY_VISION_RANGE) ||
+		CountCorpses(pSoldier, pSoldier->sGridNo, DAY_VISION_RANGE, TRUE, TRUE) > CountNearbyFriends(pSoldier, pSoldier->sGridNo, DAY_VISION_RANGE)) &&
+		(InSmoke(pSoldier->sGridNo, pSoldier->pathing.bLevel) ||
+		Chance(SoldierDifficultyLevel(pSoldier) * 10) ||
+		Chance(TeamPercentKilled(pSoldier->bTeam)) ||
+		Chance(10 * CountTeamUnderAttack(pSoldier->bTeam, pSoldier->sGridNo, DAY_VISION_RANGE)) ||
+		Chance(10 * CountCorpses(pSoldier, pSoldier->sGridNo, DAY_VISION_RANGE, TRUE, TRUE))))
+	{
+		gubNPCAPBudget = 0;
+		gubNPCDistLimit = 0;
+
+		BestThrow.ubPossible = FALSE;
+
+		if (FindBestPath(pSoldier, sClosestDisturbance, pSoldier->pathing.bLevel, RUNNING, COPYROUTE, 0))
+		{
+			DebugAI(AI_MSG_INFO, pSoldier, String("found path to %d, path size %d ", sClosestDisturbance, pSoldier->pathing.usPathDataSize));
+
+			INT32 sCheckGridNo = pSoldier->sGridNo;
+			INT32 sSmokeSpot = NOWHERE;
+
+			for (INT16 sLoop = pSoldier->pathing.usPathIndex; sLoop < pSoldier->pathing.usPathDataSize; sLoop++)
+			{
+				sCheckGridNo = NewGridNo(sCheckGridNo, DirectionInc((UINT8)(pSoldier->pathing.usPathingData[sLoop])));
+
+				if (!TileIsOutOfBounds(sCheckGridNo) &&
+					PythSpacesAway(pSoldier->sGridNo, sCheckGridNo) < TACTICAL_RANGE / 2 &&
+					PythSpacesAway(pSoldier->sGridNo, sCheckGridNo) > TACTICAL_RANGE / 4 &&
+					!Water(sCheckGridNo, pSoldier->pathing.bLevel) &&
+					!InSmoke(sCheckGridNo, pSoldier->pathing.bLevel) &&
+					!SightCoverAtSpot(pSoldier, sCheckGridNo, FALSE))
+				{
+					CheckTossGrenadeAt(pSoldier, &BestThrow, sCheckGridNo, pSoldier->pathing.bLevel, EXPLOSV_SMOKE);
+					if (BestThrow.ubPossible)
+					{
+						sSmokeSpot = sCheckGridNo;
+					}
+				}
+			}
+
+			if (!TileIsOutOfBounds(sSmokeSpot))
+			{
+				CheckTossGrenadeAt(pSoldier, &BestThrow, sSmokeSpot, pSoldier->pathing.bLevel, EXPLOSV_SMOKE);
+			}
+
+			if (BestThrow.ubPossible)
+			{
+				if (BestThrow.bWeaponIn != HANDPOS)
+				{
+					RearrangePocket(pSoldier, HANDPOS, BestThrow.bWeaponIn, FOREVER);
+				}
+
+				if (gAnimControl[pSoldier->usAnimState].ubEndHeight < BestThrow.ubStance &&
+					pSoldier->InternalIsValidStance(AIDirection(pSoldier->sGridNo, BestThrow.sTarget), BestThrow.ubStance))
+				{
+					pSoldier->aiData.usActionData = BestThrow.ubStance;
+					pSoldier->aiData.bNextAction = AI_ACTION_TOSS_PROJECTILE;
+					pSoldier->aiData.usNextActionData = BestThrow.sTarget;
+					pSoldier->aiData.bNextTargetLevel = BestThrow.bTargetLevel;
+					pSoldier->aiData.bAimTime = BestThrow.ubAimTime;
+					return AI_ACTION_CHANGE_STANCE;
+				}
+
+				pSoldier->aiData.usActionData = BestThrow.sTarget;
+				pSoldier->bTargetLevel = BestThrow.bTargetLevel;
+				pSoldier->aiData.bAimTime = BestThrow.ubAimTime;
+
+				return AI_ACTION_TOSS_PROJECTILE;
+			}
+		}
+		gubNPCAPBudget = 0;
+	}
+
+	return -1;
+}
+
+
 INT8 DecideActionRed(SOLDIERTYPE *pSoldier)
 {
 	INT8	bActionReturned;
@@ -3920,6 +4223,22 @@ INT8 DecideActionRed(SOLDIERTYPE *pSoldier)
 			pSoldier->aiData.usActionData = ANIM_CROUCH;
 			return(AI_ACTION_CHANGE_STANCE);
 		}
+
+		// sevenfm (ported): Push-3 offensive-consideration calls, placed (mirroring vr DecideActionRed)
+		// after the prone->crouch block and just before the general movement fallback. Order matches vr:
+		// wirecutters (vr :3235), grenade-for-special-purpose (vr :3293), smoke-to-cover-movement (vr :3298).
+		// vr's inline CheckTossOpponentFence block (vr :3239-3290) is a separate un-ported behavior, so skipped.
+		bActionReturned = DecideUseWirecutters(pSoldier);
+		if (bActionReturned != -1)
+			return bActionReturned;
+
+		bActionReturned = DecideUseGrenadeSpecial(pSoldier);
+		if (bActionReturned != -1)
+			return bActionReturned;
+
+		bActionReturned = DecideSmokeCoverMovement(pSoldier, sClosestDisturbance);
+		if (bActionReturned != -1)
+			return bActionReturned;
 
 		// if we can move at least 1 square's worth
 		// and have more APs than we want to reserve
@@ -5454,6 +5773,13 @@ INT16 ubMinAPCost;
 			return( pSoldier->aiData.bAction );
 		}
 	}
+
+	// sevenfm (ported): after the no-gun weapon search (mirroring vr DecideActionBlack :4836), try to cut a
+	// fence with wirecutters to open a flank route. Only DecideUseWirecutters is wired into Black; the grenade
+	// -special and smoke-cover calls stay Red-only (Black already has its own inlined smoke-cover block).
+	bActionReturned = DecideUseWirecutters(pSoldier);
+	if (bActionReturned != -1)
+		return bActionReturned;
 
 	// Flugente: trait skills
 	// if we are a radio operator

@@ -203,7 +203,8 @@ STR szAction[] = {
 	"AI_ACTION_DOCTOR",
 	"AI_ACTION_DOCTOR_SELF",
 	"AI_ACTION_SELFDETONATE",
-	"AI_ACTION_STOP_MEDIC"
+	"AI_ACTION_STOP_MEDIC",
+	"AI_ACTION_HANDLE_ITEM"		// sevenfm (ported)
 };
 
 // sevenfm
@@ -2684,6 +2685,17 @@ INT8 ExecuteAction(SOLDIERTYPE *pSoldier)
 			{
 				pSoldier->SelfDetonate( );
 				ActionDone( pSoldier );
+			}
+			break;
+
+		// sevenfm (ported): use the item currently in HANDPOS at usActionData (wirecutters cutting a fence)
+		case AI_ACTION_HANDLE_ITEM:
+			iRetCode = HandleItem(pSoldier, pSoldier->aiData.usActionData, pSoldier->pathing.bLevel, pSoldier->inv[HANDPOS].usItem, FALSE);
+			if (iRetCode != ITEM_HANDLE_OK)
+			{
+				DebugAI(AI_MSG_INFO, pSoldier, String("CancelAIAction (AI_ACTION_HANDLE_ITEM): HandleItem error code %d", iRetCode));
+				CancelAIAction(pSoldier, FORCE);
+				EndAIGuysTurn(pSoldier);
 			}
 			break;
 

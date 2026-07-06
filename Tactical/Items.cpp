@@ -1672,6 +1672,28 @@ INT8 FindUsableObj( SOLDIERTYPE * pSoldier, UINT16 usItem )
 }
 
 
+// sevenfm (ported):
+INT8 FindWirecutters(SOLDIERTYPE * pSoldier)
+{
+	Assert(pSoldier);
+
+	for (INT8 bLoop = 0; bLoop < NUM_INV_SLOTS; bLoop++)
+	{
+		if (pSoldier->inv[bLoop].exists() == true)
+		{
+			// trunk migrated the wirecutters property from a struct member (vr Item[].wirecutters)
+			// to an item flag, queried via ItemIsWirecutters()
+			if ((Item[pSoldier->inv[bLoop].usItem].usItemClass & IC_MISC) && ItemIsWirecutters(pSoldier->inv[bLoop].usItem))
+			{
+				return(bLoop);
+			}
+		}
+	}
+
+	return NO_SLOT;
+}
+
+
 INT8 FindObjExcludingSlot( SOLDIERTYPE * pSoldier, UINT16 usItem, INT8 bExcludeSlot )
 {
 	INT8 invsize = (INT8)pSoldier->inv.size();

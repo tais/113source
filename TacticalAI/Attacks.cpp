@@ -4285,3 +4285,159 @@ void CheckTossGrenadeAt(SOLDIERTYPE *pSoldier, ATTACKTYPE *pBestThrow, INT32 sTa
 
 	pSoldier->bWeaponMode = WM_NORMAL;
 }
+
+// sevenfm (ported):
+void CheckTossGrenadeSpecial(SOLDIERTYPE *pSoldier, ATTACKTYPE *pBestThrow)
+{
+	INT16 ubMinAPcost;
+	INT8 bGrenadeIn = NO_SLOT;
+	UINT16 usGrenade;
+	UINT8 ubType;
+	UINT8 ubRadius;
+	UINT8 ubMinDamage;
+	pBestThrow->ubPossible = FALSE;
+	pBestThrow->ubChanceToReallyHit = 0;
+	pBestThrow->iAttackValue = 0;
+	pBestThrow->ubOpponent = NOBODY;
+	if (!IS_MERC_BODY_TYPE(pSoldier))
+		return;
+	pSoldier->bWeaponMode = WM_NORMAL;
+	for (ubType = EXPLOSV_NORMAL; ubType < EXPLOSV_ANY_TYPE; ubType++)
+	{
+		switch (ubType)
+		{
+		case EXPLOSV_NORMAL:
+		case EXPLOSV_STUN: ubMinDamage = 10; break;
+		case EXPLOSV_MUSTGAS:
+		case EXPLOSV_CREATUREGAS:
+		case EXPLOSV_BURNABLEGAS: ubMinDamage = 5; break;
+		case EXPLOSV_FLASHBANG: ubMinDamage = 1; break;
+		case EXPLOSV_FLARE:
+		case EXPLOSV_NOISE:
+		case EXPLOSV_SMOKE:
+		case EXPLOSV_SIGNAL_SMOKE:
+		case EXPLOSV_TEARGAS: ubMinDamage = 0; break;
+		default: ubMinDamage = 10;
+		}
+		bGrenadeIn = FindThrowableGrenade(pSoldier, ubType, ubMinDamage);
+		if (bGrenadeIn != NO_SLOT)
+		{
+			pBestThrow->bWeaponIn = bGrenadeIn;
+			usGrenade = pSoldier->inv[bGrenadeIn].usItem;
+			ubRadius = max(Explosive[Item[usGrenade].ubClassIndex].ubRadius, min(TACTICAL_RANGE / 4, Explosive[Item[usGrenade].ubClassIndex].ubFragRange / CELL_X_SIZE));
+			if (pBestThrow->bWeaponIn != HANDPOS)
+				RearrangePocket(pSoldier, HANDPOS, pBestThrow->bWeaponIn, TEMPORARILY);
+			ubMinAPcost = MinAPsToAttack(pSoldier, pSoldier->sGridNo, DONTADDTURNCOST, 0);
+			if (pSoldier->bActionPoints >= ubMinAPcost)
+			{
+				INT16 sMaxLeft, sMaxRight, sMaxUp, sMaxDown, sXOffset, sYOffset;
+				INT32 iSearchRange = TACTICAL_RANGE / 2;
+				INT32 sSpot;
+				INT32 sBestSpot = NOWHERE;
+				INT8 bSoldierLevel = pSoldier->pathing.bLevel;
+				INT8 bLevel = 0;
+				UINT8 ubMinDistance = TACTICAL_RANGE / 8;
+				INT16 sMaxEnemyDistance = TACTICAL_RANGE * 2;
+				INT32 iValue;
+				INT32 iBestValue = 0;
+				INT32 sClosestOpponent;
+				INT32 sClosestOpponentPathCost = 0;
+				INT32 sClosestOpponentStraightPathCost = 0;
+				INT32 sEnemySpot = NOWHERE;
+				INT8 bEnemyLevel = 0;
+				INT16 sClosestOpponentDistance = 0;
+				UINT8 ubSpotDir;
+				INT16 sObstaclePercent = 0;
+				UINT8 ubStructureExplosionRadius = (UINT8)Explosive[Item[C1].ubClassIndex].ubRadius;
+				INT32 iRCD = RangeChangeDesire(pSoldier);
+				sClosestOpponent = ClosestKnownOpponent(pSoldier, &sEnemySpot, &bEnemyLevel);
+				if (!TileIsOutOfBounds(sEnemySpot) && PythSpacesAway(pSoldier->sGridNo, sEnemySpot) < DAY_VISION_RANGE * 2)
+				{
+					sClosestOpponentPathCost = PlotPath(pSoldier, sEnemySpot, FALSE, FALSE, FALSE, RUNNING, 0, FALSE, 0);
+					sClosestOpponentDistance = PythSpacesAway(pSoldier->sGridNo, sEnemySpot);
+					sClosestOpponentStraightPathCost = sClosestOpponentDistance * (APBPConstants[AP_MOVEMENT_FLAT] + APBPConstants[AP_MODIFIER_RUN]);
+					sObstaclePercent = min(100, 100 * abs(sClosestOpponentPathCost - sClosestOpponentStraightPathCost) / sClosestOpponentStraightPathCost);
+				}
+				sMaxLeft = min(iSearchRange, (pSoldier->sGridNo % MAXCOL));
+				sMaxRight = min(iSearchRange, MAXCOL - ((pSoldier->sGridNo % MAXCOL) + 1));
+				sMaxUp = min(iSearchRange, (pSoldier->sGridNo / MAXROW));
+				sMaxDown = min(iSearchRange, MAXROW - ((pSoldier->sGridNo / MAXROW) + 1));
+				for (sYOffset = -sMaxUp; sYOffset <= sMaxDown; sYOffset++)
+				{
+					for (sXOffset = -sMaxLeft; sXOffset <= sMaxRight; sXOffset++)
+					{
+						sSpot = pSoldier->sGridNo + sXOffset + (MAXCOL * sYOffset);
+						if (TileIsOutOfBounds(sSpot)) continue;
+						if (Water(sSpot, bLevel)) continue;
+						if (FindBombNearby(pSoldier, sSpot, 1)) continue;
+						iValue = 0;
+						if (gGameSettings.fOptions[TOPTION_ZOMBIES])
+						{
+							INT32 cnt;
+							ROTTING_CORPSE *pCorpse;
+							UINT16 recanimstate;
+							for (cnt = 0; cnt < giNumRottingCorpse; ++cnt)
+							{
+								pCorpse = &(gRottingCorpse[cnt]);
+								if (pCorpse && pCorpse->fActivated && pCorpse->def.bLevel == bLevel && pCorpse->def.sGridNo == sSpot &&
+									!(pCorpse->def.usFlags & (ROTTING_CORPSE_HEAD_TAKEN | ROTTING_CORPSE_NEVER_RISE_AGAIN)) &&
+									CorpseOkToSpawnZombie(pCorpse, &recanimstate) && (ubType == EXPLOSV_NORMAL || ubType == EXPLOSV_BURNABLEGAS))
+								{
+									iValue = max(iValue, 5 * gGameExternalOptions.sZombieDifficultyLevel);
+									break;
+								}
+							}
+						}
+						if (sObstaclePercent > 25 && bSoldierLevel == 0 && pSoldier->aiData.bOrders == SEEKENEMY && !TileIsOutOfBounds(sEnemySpot) && ubType == EXPLOSV_NORMAL &&
+							(FindStruct(sSpot, bLevel, BLUEFLAG_GRAPHIC) || FindConcertina(sSpot) || IsCuttableWireFenceAtGridNo(sSpot)))
+						{
+							INT32 sTempSpot;
+							UINT8 ubDirection;
+							UINT8 ubCount = 0;
+							for (ubDirection = 0; ubDirection < NUM_WORLD_DIRECTIONS; ubDirection++)
+							{
+								sTempSpot = NewGridNo(sSpot, DirectionInc(ubDirection));
+								if (sTempSpot != sSpot && (FindStruct(sTempSpot, bLevel, BLUEFLAG_GRAPHIC) || FindConcertina(sTempSpot) || IsCuttableWireFenceAtGridNo(sTempSpot)))
+									ubCount++;
+							}
+							if (ubCount >= 2)
+							{
+								ubSpotDir = AIDirection(pSoldier->sGridNo, sSpot);
+								iValue = max(iValue, sObstaclePercent * min(100, 10 * CountKnownEnemiesInDirection(pSoldier, ubSpotDir, sMaxEnemyDistance, FALSE) +
+									5 * CountKnownEnemiesInDirection(pSoldier, gOneCDirection[ubSpotDir], sMaxEnemyDistance, FALSE) +
+									5 * CountKnownEnemiesInDirection(pSoldier, gOneCCDirection[ubSpotDir], sMaxEnemyDistance, FALSE)) / 100);
+							}
+						}
+						if (PythSpacesAway(pSoldier->sGridNo, sSpot) < ubMinDistance || CountNearbyFriends(pSoldier, sSpot, ubMinDistance) > 0 || CountNearbyNeutrals(pSoldier, sSpot, ubMinDistance))
+							iValue = iValue / 2;
+						if (iValue > iBestValue)
+						{
+							CheckTossAt(pSoldier, pBestThrow, sSpot, bLevel, NOBODY);
+							if (pBestThrow->ubPossible)
+							{
+								iValue = iValue * pBestThrow->ubChanceToReallyHit;
+								if (iValue > iBestValue)
+								{
+									sBestSpot = sSpot;
+									iBestValue = iValue;
+								}
+							}
+						}
+					}
+				}
+				pBestThrow->ubPossible = FALSE;
+				pBestThrow->ubChanceToReallyHit = 0;
+				pBestThrow->iAttackValue = 0;
+				pBestThrow->ubOpponent = NOBODY;
+				if (!TileIsOutOfBounds(sBestSpot))
+				{
+					CheckTossAt(pSoldier, pBestThrow, sBestSpot, bLevel, NOBODY);
+					pBestThrow->iAttackValue = iBestValue;
+				}
+			}
+			if (pBestThrow->bWeaponIn != HANDPOS)
+				RearrangePocket(pSoldier, HANDPOS, pBestThrow->bWeaponIn, TEMPORARILY);
+		}
+	}
+	pSoldier->bWeaponMode = WM_NORMAL;
+}

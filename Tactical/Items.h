@@ -52,6 +52,7 @@ extern INT8 FindGLGrenade(SOLDIERTYPE * pSoldier);
 extern INT8 FindThrowableGrenade(SOLDIERTYPE * pSoldier, UINT8 ubGrenadeType = EXPLOSV_ANY_TYPE, UINT8 ubMinDamaga = 0);
 extern UINT8 CountThrowableGrenades(SOLDIERTYPE * pSoldier, UINT8 ubGrenadeType = EXPLOSV_ANY_TYPE, UINT8 ubMinDamaga = 0);
 extern INT8 FindUsableObj(SOLDIERTYPE * pSoldier, UINT16 usItem);
+INT8 FindWirecutters(SOLDIERTYPE * pSoldier);		// sevenfm (ported)
 
 void DeleteObj(OBJECTTYPE * pObj );
 void SwapObjs( OBJECTTYPE * pObj1, OBJECTTYPE * pObj2 );

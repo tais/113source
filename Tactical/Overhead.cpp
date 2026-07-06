@@ -343,6 +343,7 @@ CHAR8 gzActionStr[][ 30 ] =
 	"DOCTOR SELF",
 	"SELFDETONATE",
 	"STOP MEDIC",
+	"HANDLE ITEM",		// sevenfm (ported)
 };
 
 CHAR8 gzDirectionStr[][ 30 ] =

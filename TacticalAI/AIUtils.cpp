@@ -4011,6 +4011,195 @@ UINT8 CountNearbyFriendsLastAttackHit( SOLDIERTYPE *pSoldier, INT32 sGridNo, UIN
 	return ubFriendCount;
 }
 
+// sevenfm (ported): TRUE if the soldier's last-shot target is now cowering/suppressed. All primitives
+// exist in trunk (sLastTarget, WhoIsThere2 118x, NOBODY, CoweringShockLevel decl Overhead.h:392, MercPtrs).
+// This is the free-function version (vr AIUtils.cpp:5650); the same-named SOLDIERTYPE method in the vr
+// header has no body in the snapshot and is not needed.
+BOOLEAN LastTargetSuppressed( SOLDIERTYPE *pSoldier )
+{
+	CHECKF(pSoldier);
+	UINT8 ubTarget;
+
+	if (TileIsOutOfBounds(pSoldier->sLastTarget))
+		return FALSE;
+
+	ubTarget = WhoIsThere2( pSoldier->sLastTarget, 0 );
+	if (ubTarget == NOBODY)
+		ubTarget = WhoIsThere2( pSoldier->sLastTarget, 1 );
+	if (ubTarget == NOBODY)
+		return FALSE;
+
+	if (CoweringShockLevel(MercPtrs[ubTarget]))
+		return TRUE;
+
+	return FALSE;
+}
+
+// sevenfm (ported): TRUE if the soldier's last-shot target is now down (dead/collapsed). All primitives
+// exist in trunk (bCollapsed/bBreathCollapsed members Soldier Control.h:1181-1182, OKLIFE, WhoIsThere2,
+// NOBODY, MercPtrs). Free-function version (vr AIUtils.cpp:5616); the vr header method has no body and is
+// not needed.
+BOOLEAN LastTargetCollapsed( SOLDIERTYPE *pSoldier )
+{
+	CHECKF(pSoldier);
+	UINT8 ubTarget;
+
+	if (TileIsOutOfBounds(pSoldier->sLastTarget))
+		return FALSE;
+
+	ubTarget = WhoIsThere2( pSoldier->sLastTarget, 0 );
+	if (ubTarget == NOBODY)
+		ubTarget = WhoIsThere2( pSoldier->sLastTarget, 1 );
+	if (ubTarget == NOBODY)
+		return FALSE;
+
+	if (MercPtrs[ubTarget]->stats.bLife < OKLIFE ||
+		MercPtrs[ubTarget]->bCollapsed ||
+		MercPtrs[ubTarget]->bBreathCollapsed)
+		return TRUE;
+
+	return FALSE;
+}
+
+// sevenfm (ported): count nearby friendlies (orders > ONGUARD) within sDistance whose last attack landed
+// or whose target is suppressed. See depsMissing: vr read an absent accessor + a dead flag; here the
+// signal is the live trunk field aiData.bLastAttackHit plus the ported LastTargetSuppressed(). NOTE: vr's
+// literal source compared LastAttackHit() (declared BOOLEAN) against NOWHERE, which is always-true (a latent
+// fork bug that would make this count *all* nearby friends). This port instead uses the intended semantics,
+// consistent with trunk's sibling CountNearbyFriendsLastAttackHit.
+UINT8 CountFriendsLastAttackHit(SOLDIERTYPE *pSoldier, INT32 sGridNo, INT16 sDistance)
+{
+	CHECKF(pSoldier);
+
+	SOLDIERTYPE *pFriend;
+	UINT8 ubFriendCount = 0;
+
+	for (SoldierID iCounter = gTacticalStatus.Team[pSoldier->bTeam].bFirstID; iCounter <= gTacticalStatus.Team[pSoldier->bTeam].bLastID; ++iCounter)
+	{
+		pFriend = MercPtrs[iCounter];
+
+		if (pFriend &&
+			pFriend != pSoldier &&
+			pFriend->bActive &&
+			pFriend->stats.bLife >= OKLIFE &&
+			pFriend->aiData.bOrders > ONGUARD &&
+			PythSpacesAway(sGridNo, pFriend->sGridNo) <= sDistance &&
+			(pFriend->aiData.bLastAttackHit || LastTargetSuppressed(pFriend)))
+		{
+			ubFriendCount++;
+		}
+	}
+
+	return ubFriendCount;
+}
+
+// sevenfm (ported): TRUE when this soldier -- or (fGroup) a nearby friendly / a friendly near the closest
+// known opponent -- has recently landed a hit, or the soldier's last target is down/suppressed. Used by
+// DecideSmokeCoverMovement to SKIP the smoke-rush when the squad is already winning the exchange.
+// Reconstructed from live trunk state; the dead SOLDIER_SUCCESSFUL_ATTACK flag is dropped (see depsMissing).
+// IMPORTANT: trunk's earlier AbortPath port (AIUtils.cpp:5862) hard-pinned this same concept to FALSE; this
+// port implements it for real, so consider aligning the two (either point AbortPath at this function or keep
+// the divergence deliberately). Not stubbing it here is what preserves the intended vr gating behavior.
+BOOLEAN AICheckSuccessfulAttack(SOLDIERTYPE *pSoldier, BOOLEAN fGroup)
+{
+	CHECKF(pSoldier);
+
+	if (pSoldier->aiData.bLastAttackHit && pSoldier->sLastTarget != NOWHERE)
+		return TRUE;
+
+	if (LastTargetCollapsed(pSoldier) || LastTargetSuppressed(pSoldier))
+		return TRUE;
+
+	if (fGroup && CountFriendsLastAttackHit(pSoldier, pSoldier->sGridNo, DAY_VISION_RANGE / 4))
+		return TRUE;
+
+	INT32 sClosestOpponent = ClosestKnownOpponent(pSoldier, NULL, NULL);
+	if (fGroup &&
+		!TileIsOutOfBounds(sClosestOpponent) &&
+		CountFriendsLastAttackHit(pSoldier, sClosestOpponent, DAY_VISION_RANGE))
+		return TRUE;
+
+	return FALSE;
+}
+
+// sevenfm (ported):
+UINT8 CountNearbyNeutrals(SOLDIERTYPE *pSoldier, INT32 sGridNo, INT16 sDistance)
+{
+	SOLDIERTYPE * pFriend;
+	UINT8 ubFriendCount = 0;
+	if (!pSoldier)
+		return 0;
+	for (UINT32 uiLoop = 0; uiLoop < guiNumMercSlots; uiLoop++)
+	{
+		pFriend = MercSlots[uiLoop];
+		if (pFriend && pFriend != pSoldier && pFriend->bActive &&
+			pFriend->stats.bLife >= OKLIFE &&
+			CONSIDERED_NEUTRAL(pSoldier, pFriend) &&
+			PythSpacesAway(sGridNo, pFriend->sGridNo) <= sDistance)
+		{
+			ubFriendCount++;
+		}
+	}
+	return ubFriendCount;
+}
+
+// sevenfm (ported):
+UINT8 CountKnownEnemiesInDirection(SOLDIERTYPE *pSoldier, UINT8 ubDirection, INT16 sDistance, BOOLEAN fAdjacent)
+{
+	CHECKF(pSoldier);
+	UINT32 uiLoop;
+	SOLDIERTYPE *pOpponent;
+	INT32 sThreatLoc;
+	INT8 iThreatLevel;
+	UINT8 ubNum = 0;
+	for (uiLoop = 0; uiLoop < guiNumMercSlots; ++uiLoop)
+	{
+		pOpponent = MercSlots[uiLoop];
+		if (!pOpponent || pOpponent->stats.bLife < OKLIFE)
+			continue;
+		if (!ValidOpponent(pSoldier, pOpponent))
+			continue;
+		if (Knowledge(pSoldier, pOpponent->ubID) == NOT_HEARD_OR_SEEN)
+			continue;
+		sThreatLoc = KnownLocation(pSoldier, pOpponent->ubID);
+		iThreatLevel = KnownLevel(pSoldier, pOpponent->ubID);
+		if (TileIsOutOfBounds(sThreatLoc))
+			continue;
+		if (PythSpacesAway(pSoldier->sGridNo, sThreatLoc) > sDistance)
+			continue;
+		if (AIDirection(pSoldier->sGridNo, sThreatLoc) != ubDirection &&
+			(!fAdjacent || AIDirection(pSoldier->sGridNo, sThreatLoc) != gOneCDirection[ubDirection] && AIDirection(pSoldier->sGridNo, sThreatLoc) != gOneCCDirection[ubDirection]))
+			continue;
+		ubNum++;
+	}
+	return ubNum;
+}
+
+// sevenfm (ported):
+BOOLEAN FindFenceAroundSpot(INT32 sSpot)
+{
+	if (TileIsOutOfBounds(sSpot))
+	{
+		return FALSE;
+	}
+
+	UINT8 ubDirection;
+	INT32 sTempSpot;
+
+	// check adjacent locations
+	for (ubDirection = 0; ubDirection < NUM_WORLD_DIRECTIONS; ubDirection++)
+	{
+		sTempSpot = NewGridNo(sSpot, DirectionInc(ubDirection));
+
+		if (sTempSpot != sSpot && IsCuttableWireFenceAtGridNo(sTempSpot))
+		{
+			return TRUE;
+		}
+	}
+
+	return FALSE;
+}
+
 UINT8 CountFriendsFlankSameSpot(SOLDIERTYPE *pSoldier, INT32 sSpot)
 {
 	CHECKF(pSoldier);
@@ -4847,7 +5036,7 @@ void AlertFriends(INT8 bTeam, UINT8 ubCivGroup)
 	SOLDIERTYPE * pFriend;
 
 	// Run through each friendly.
-	for (SoldierID iCounter = gTacticalStatus.Team[bTeam].bFirstID; iCounter <= gTacticalStatus.Team[bTeam].bLastID; iCounter++)
+	for (SoldierID iCounter = gTacticalStatus.Team[bTeam].bFirstID; iCounter <= gTacticalStatus.Team[bTeam].bLastID; ++iCounter)
 	{
 		pFriend = MercPtrs[iCounter];
 
@@ -4868,7 +5057,7 @@ UINT8 CountFriendsNotAlerted(SOLDIERTYPE *pSoldier)
 	UINT8 ubFriendCount = 0;
 
 	// Run through each friendly.
-	for (SoldierID iCounter = gTacticalStatus.Team[pSoldier->bTeam].bFirstID; iCounter <= gTacticalStatus.Team[pSoldier->bTeam].bLastID; iCounter++)
+	for (SoldierID iCounter = gTacticalStatus.Team[pSoldier->bTeam].bFirstID; iCounter <= gTacticalStatus.Team[pSoldier->bTeam].bLastID; ++iCounter)
 	{
 		pFriend = MercPtrs[iCounter];
 
@@ -4894,7 +5083,7 @@ INT16 DistanceToClosestNotSeekEnemyFriend( SOLDIERTYPE *pSoldier, INT32 sGridNo 
 	SOLDIERTYPE * pFriend;
 
 	// Run through each friendly.
-	for ( SoldierID iCounter = gTacticalStatus.Team[ pSoldier->bTeam ].bFirstID ; iCounter <= gTacticalStatus.Team[ pSoldier->bTeam ].bLastID ; iCounter ++ )
+	for ( SoldierID iCounter = gTacticalStatus.Team[ pSoldier->bTeam ].bFirstID ; iCounter <= gTacticalStatus.Team[ pSoldier->bTeam ].bLastID ; ++iCounter )
 	{
 		pFriend = MercPtrs[ iCounter ];
 
