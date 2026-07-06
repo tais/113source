@@ -31,6 +31,7 @@
 	#include "strategicmap.h"
 	#include "Quests.h"
 	#include "worldman.h"
+	#include "PATHAI.H"	// sevenfm (ported): TRAVELCOST_BLOCKED for WatchedLocLocationIsEmpty
 	#include "SkillCheck.h"
 	#include "GameSettings.h"
 	#include "Smell.h"
@@ -1206,6 +1207,12 @@ INT16 DistanceVisible(SOLDIERTYPE *pSoldier, INT8 bFacingDir, INT8 bSubjectDir, 
 		return( 0 );
 	}
 
+	// sevenfm (ported): if soldier is captured, he can't see anything
+	if( pSoldier->usSoldierFlagMask & SOLDIER_POW )
+	{
+		return( 0 );
+	}
+
 	// Bob: if gridNo isn't set, this would cause a access violation later on
 	if (pSoldier->sGridNo < 0) {
 		// ScreenMsg(FONT_MCOLOR_LTRED, MSG_INTERFACE, L"DistanceVisible(): Caught bad LOS distance check!");
@@ -1331,23 +1338,21 @@ INT16 DistanceVisible(SOLDIERTYPE *pSoldier, INT8 bFacingDir, INT8 bSubjectDir, 
 	// Snap: this takes care of all equipment bonuses at all light levels
 	// The rest is special code for robots, bloodcats and NO specialists
 	// Lalien: change to % instead of tiles, add bonus only to front view when using scope
-	if (!sideViewLimit)
+	// sevenfm (ported): vision penalty should apply to all directions
+	// PORT-VARIANT: trunk has no 4-arg position-aware GetTotalVisionRangeBonus, so use the existing 2-arg version
+	INT16 sVisionRangeBonus = GetTotalVisionRangeBonus(pSoldier, bLightLevel);
+	if (!sideViewLimit || sVisionRangeBonus < 0)
 	{
-		sDistVisible += sDistVisible * GetTotalVisionRangeBonus(pSoldier, bLightLevel) / 100;
+		sDistVisible += sDistVisible * sVisionRangeBonus / 100;
+	}
 
-		// HEADROCK HAM 3.2: Further reduce sightrange for cowering characters.
-		// SANDRO - this calls many sub-functions over and over, we should at least skip this for civilians and such  
-		// Flugente: we can check for more conditions before calculating suppression tolerance
-		if ( (gGameExternalOptions.ubCoweringReducesSightRange == 1 || gGameExternalOptions.ubCoweringReducesSightRange == 2) &&
-			IS_MERC_BODY_TYPE(pSoldier) && (pSoldier->bTeam == ENEMY_TEAM || pSoldier->bTeam == MILITIA_TEAM || pSoldier->bTeam == gbPlayerNum) && 
-			gGameExternalOptions.ubMaxSuppressionShock > 0 && sDistVisible > 0 )
-		{
-			// Make sure character is cowering.
-			if (isCowering)
-			{
-				sDistVisible = __max(1,(sDistVisible * (gGameExternalOptions.ubMaxSuppressionShock - pSoldier->aiData.bShock)) / gGameExternalOptions.ubMaxSuppressionShock);
-			}
-		}
+	// sevenfm (ported): apply cowering penalty even if using tunnel vision, use flat 1/4 range
+	// HEADROCK HAM 3.2: Further reduce sightrange for cowering characters.
+	if ( (gGameExternalOptions.ubCoweringReducesSightRange == 1 || gGameExternalOptions.ubCoweringReducesSightRange == 2) &&
+		isCowering &&
+		sDistVisible > 0 )
+	{
+		sDistVisible = __max(1, sDistVisible / 4);
 	}
 
 	// give one step better vision for people with nightops
@@ -1398,7 +1403,8 @@ INT16 DistanceVisible(SOLDIERTYPE *pSoldier, INT8 bFacingDir, INT8 bSubjectDir, 
 		}
 	}
 
-	return(sDistVisible);
+	// sevenfm (ported): don't allow negative distance
+	return __max(sDistVisible, 0);
 }
 
 
@@ -7624,10 +7630,29 @@ void CommunicateWatchedLoc( SoldierID ubID, INT32 sGridNo, INT8 bLevel, UINT8 ub
 	for ( ubLoop = gTacticalStatus.Team[ bTeam ].bFirstID; ubLoop <= gTacticalStatus.Team[ bTeam ].bLastID; ++ubLoop )
 	{
 		SOLDIERTYPE *pSoldier = ubLoop;
-		if ( ubLoop == ubID || pSoldier->bActive == FALSE || pSoldier->bInSector == FALSE || pSoldier->stats.bLife < OKLIFE )
+		if ( ubLoop == ubID || pSoldier->bActive == FALSE || pSoldier->bInSector == FALSE || pSoldier->stats.bLife < OKLIFE ||
+			pSoldier->bCollapsed || pSoldier->bBreathCollapsed )
 		{
 			continue;
 		}
+
+		// sevenfm (ported): skip communication if friend is too far or no line of sight between
+		BOOLEAN fCanCommunicate = FALSE;
+		if ( FindHearingAid(ubID) && FindHearingAid(pSoldier) &&
+			PythSpacesAway(ubID->sGridNo, pSoldier->sGridNo) < DAY_VISION_RANGE )
+		{
+			fCanCommunicate = TRUE;
+		}
+		if ( PythSpacesAway(ubID->sGridNo, pSoldier->sGridNo) < DAY_VISION_RANGE / 2 &&
+			LocationToLocationLineOfSightTest( ubID->sGridNo, ubID->pathing.bLevel, pSoldier->sGridNo, pSoldier->pathing.bLevel, TRUE, CALC_FROM_ALL_DIRS ) )
+		{
+			fCanCommunicate = TRUE;
+		}
+		if ( !fCanCommunicate )
+		{
+			continue;
+		}
+
 		bLoopPoint = FindWatchedLoc( ubLoop, sGridNo, bLevel );
 		if ( bLoopPoint == -1 )
 		{
@@ -7710,29 +7735,65 @@ void SetWatchedLocAsUsed( UINT16 ubID, INT32 sGridNo, INT8 bLevel )
 	}
 }
 
-BOOLEAN WatchedLocLocationIsEmpty( INT32 sGridNo, INT8 bLevel, INT8 bTeam )
+// sevenfm (ported): knowledge-based emptiness - loc is non-empty only if a valid, alive opponent is on/adjacent-reachable AND the team actually knows of him
+BOOLEAN WatchedLocLocationIsEmpty( INT32 sGridNo, INT8 bLevel, INT8 bTeam, SoldierID ubWatchID )
 {
+	if ( ubWatchID == NOBODY )
+	{
+		return FALSE;
+	}
+
 	// look to see if there is anyone near the watched loc who is not on this team
 	SoldierID	ubID;
+	UINT8		ubMovementCost;
 	INT32		sTempGridNo;
-	INT16		sX, sY;
+	UINT8		ubDirection;
 
-	for ( sY = -WATCHED_LOC_RADIUS; sY <= WATCHED_LOC_RADIUS; sY++ )
+	SOLDIERTYPE *pWatcher = ubWatchID;
+	if ( !pWatcher )
 	{
-		for ( sX = -WATCHED_LOC_RADIUS; sX <= WATCHED_LOC_RADIUS; sX++ )
+		return FALSE;
+	}
+
+	// check central spot
+	ubID = WhoIsThere2( sGridNo, bLevel );
+
+	// sevenfm (ported): check personal/public knowledge
+	if ( ubID != NOBODY &&
+		ValidOpponent( pWatcher, ubID ) &&
+		ubID->stats.bLife >= OKLIFE &&
+		( PublicKnowledge( bTeam, ubID ) != NOT_HEARD_OR_SEEN ||
+		PersonalKnowledge( pWatcher, ubID ) != NOT_HEARD_OR_SEEN ) )
+	{
+		return( FALSE );
+	}
+
+	// check adjacent reachable tiles for known enemies
+	for ( ubDirection = 0; ubDirection < NUM_WORLD_DIRECTIONS; ubDirection++ )
+	{
+		sTempGridNo = NewGridNo( sGridNo, DirectionInc( ubDirection ) );
+
+		if ( sTempGridNo != sGridNo )
 		{
-			sTempGridNo = sGridNo + sX + sY * WORLD_ROWS;
-			if ( sTempGridNo < 0 || sTempGridNo >= WORLD_MAX )
+			ubMovementCost = gubWorldMovementCosts[sTempGridNo][ubDirection][bLevel];
+
+			if ( ubMovementCost < TRAVELCOST_BLOCKED && NewOKDestination( pWatcher, sTempGridNo, FALSE, bLevel ) )
 			{
-				continue;
-			}
-			ubID = WhoIsThere2( sTempGridNo, bLevel );
-			if ( ubID != NOBODY && ubID->bTeam != bTeam )
-			{
-				return( FALSE );
+				ubID = WhoIsThere2( sTempGridNo, bLevel );
+
+				// sevenfm (ported): check personal/public knowledge
+				if ( ubID != NOBODY &&
+					ValidOpponent( pWatcher, ubID ) &&
+					ubID->stats.bLife >= OKLIFE &&
+					( PublicKnowledge( bTeam, ubID ) != NOT_HEARD_OR_SEEN ||
+					PersonalKnowledge( pWatcher, ubID ) != NOT_HEARD_OR_SEEN ) )
+				{
+					return( FALSE );
+				}
 			}
 		}
 	}
+
 	return( TRUE );
 }
 
@@ -7746,7 +7807,7 @@ void DecayWatchedLocs( INT8 bTeam )
 		// for each watched location
 		for ( cnt2 = 0; cnt2 < NUM_WATCHED_LOCS; cnt2++ )
 		{			
-			if (!TileIsOutOfBounds(gsWatchedLoc[ cnt ][ cnt2 ]) && WatchedLocLocationIsEmpty( gsWatchedLoc[ cnt ][ cnt2 ], gbWatchedLocLevel[ cnt ][ cnt2 ], bTeam ) )
+			if (!TileIsOutOfBounds(gsWatchedLoc[ cnt ][ cnt2 ]) && WatchedLocLocationIsEmpty( gsWatchedLoc[ cnt ][ cnt2 ], gbWatchedLocLevel[ cnt ][ cnt2 ], bTeam, cnt ) )	// sevenfm (ported): pass watcher id
 			{
 				// if the reset flag is still set, then we should decay this point
 				if (gfWatchedLocReset[ cnt ][ cnt2 ])

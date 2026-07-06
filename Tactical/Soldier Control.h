@@ -433,6 +433,7 @@ enum
 #define SOLDIER_TURNCOAT					0x00200000					// this enemy soldier will switch to the militia team if ordered to
 #define SOLDIER_BACK_ATTACK					0x00400000					// soldier was attacked from the back
 #define SOLDIER_SNEAK_ATTACK				0x00800000					// soldier was attacked by unseen enemy
+#define SOLDIER_ATTACKED_THIS_TURN			0x01000000					// sevenfm (ported): soldier used any weapon this turn (remapped from vr's 0x00008000, which is SOLDIER_CONCEALINSERTION in trunk)
 
 #define SOLDIER_INTERROGATE_ALL				0x000001F8					// all interrogation flags
 // ----------------------------------------------------------------

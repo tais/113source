@@ -1662,6 +1662,9 @@ typedef struct
 	BOOLEAN fAIPathTweaks;
 	BOOLEAN fAIShootUnseen;
 	BOOLEAN fAISafeSuppression;
+	BOOLEAN fImprovedAimLevels;			// sevenfm (ported): distance-capped OCTH aim levels
+	BOOLEAN fAIDecisionInfo;			// sevenfm (ported): runtime AI decision debug logging toggle
+	BOOLEAN fAIDebugInfo;				// sevenfm (ported): runtime AI debug logging toggle
 
 	// Mini Events
 	BOOLEAN fMiniEventsEnabled;

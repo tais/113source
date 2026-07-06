@@ -4395,12 +4395,13 @@ UINT8 SoldierToLocationChanceToGetThrough( SOLDIERTYPE * pStartSoldier, INT32 sG
 	}
 	CHECKF( pStartSoldier );
 
-	pEndSoldier = SimpleFindSoldier( sGridNo, bLevel );
+	// sevenfm (ported): disabled as we need to use bCubeLevel to know where we can hit
+	/*pEndSoldier = SimpleFindSoldier( sGridNo, bLevel );
 	if (pEndSoldier != NULL)
 	{
 		return( SoldierToSoldierChanceToGetThrough( pStartSoldier, pEndSoldier ) );
 	}
-	else
+	else*/
 	{
 		if (bCubeLevel)
 		{
@@ -4457,7 +4458,8 @@ UINT8 AISoldierToSoldierChanceToGetThrough( SOLDIERTYPE * pStartSoldier, SOLDIER
 
 	// set startsoldier's target ID ... need an ID stored in case this
 	// is the AI calculating cover to a location where he might not be any more
-	pStartSoldier->ubCTGTTargetID = NOBODY;
+	// sevenfm (ported): use real target ID
+	pStartSoldier->ubCTGTTargetID = pEndSoldier->ubID;
 
 	ConvertGridNoToCenterCellXY(pEndSoldier->sGridNo, &sX, &sY);
 	ubChance = ChanceToGetThrough( pStartSoldier, (FLOAT) sX, (FLOAT) sY, dEndZPos );

@@ -2679,6 +2679,10 @@ void SoldierGetItemFromWorld( SOLDIERTYPE *pSoldier, INT32 iItemIndex, INT32 sGr
 	{
 		//deduct Points
 		DeductPoints( pSoldier, sAPCost, 0 );
+		// sevenfm (ported): update flashlights
+		pSoldier->HandleFlashLights();
+		// sevenfm (ported): update sight
+		HandleSight(pSoldier, SIGHT_LOOK | SIGHT_INTERRUPT);
 	}
 
 	// OK, check if potentially a good candidate for cool quote
@@ -6391,6 +6395,17 @@ BOOLEAN NearbyGroundSeemsWrong( SOLDIERTYPE * pSoldier, INT32 sGridNo, BOOLEAN f
 		fMining = FALSE;
 
 		ubDetectLevel = CalcTrapDetectLevel( pSoldier, FALSE );
+
+		// sevenfm (ported): bonus if soldier is crawling and has a knife in hand
+		// (vr called FindKnifeInHand(); inlined here since that helper is absent from trunk)
+		if ( pSoldier->usAnimState == CRAWLING &&
+			( ( pSoldier->inv[HANDPOS].exists() &&
+				( Item[pSoldier->inv[HANDPOS].usItem].usItemClass == IC_BLADE || Item[pSoldier->inv[HANDPOS].usItem].usItemClass == IC_THROWING_KNIFE ) ) ||
+			  ( pSoldier->inv[SECONDHANDPOS].exists() &&
+				( Item[pSoldier->inv[SECONDHANDPOS].usItem].usItemClass == IC_BLADE || Item[pSoldier->inv[SECONDHANDPOS].usItem].usItemClass == IC_THROWING_KNIFE ) ) ) )
+		{
+			ubDetectLevel += 2;
+		}
 		/*
 		if (pSoldier->bStealthMode)
 		{

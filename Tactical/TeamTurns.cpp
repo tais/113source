@@ -1627,7 +1627,17 @@ BOOLEAN StandardInterruptConditionsMet( SOLDIERTYPE * pSoldier, SoldierID ubOppo
 
 	// a soldier already engaged in a life & death battle is too busy doing his
 	// best to survive to worry about "getting the jump" on additional threats
-	if (pSoldier->aiData.bUnderFire)
+	// sevenfm (ported): only block when under heavy fire THIS turn (bUnderFire==2) or in cowering shock;
+	// a soldier shot only last turn (bUnderFire==1) may still earn an interrupt
+	if (pSoldier->aiData.bUnderFire == 2 ||
+		CoweringShockLevel(pSoldier))
+	{
+		return(FALSE);
+	}
+
+	// sevenfm (ported): a soldier committed to spotting cannot win an interrupt.
+	// vr also blocked SOLDIER_COUNTER_WATCH here; that counter does not exist in trunk, so the WATCH half is DROPPED.
+	if (pSoldier->usSkillCounter[SOLDIER_COUNTER_SPOTTER] > 0)
 	{
 		return(FALSE);
 	}
@@ -1772,14 +1782,16 @@ BOOLEAN StandardInterruptConditionsMet( SOLDIERTYPE * pSoldier, SoldierID ubOppo
 	}
 
 	// soldier passed on the chance to react during previous interrupt this turn
-	if (pSoldier->aiData.bPassedLastInterrupt)
+	// sevenfm (ported): re-enabled the classic bailout for the Ctrl+D skip-interrupts feature; only in the
+	// legacy (non-IIS) single-player system. NOTE: trunk intentionally leaves this return disabled.
+	if (!is_networked && !UsingImprovedInterruptSystem() && pSoldier->aiData.bPassedLastInterrupt)
 	{
 #ifdef RECORDNET
 		fprintf(NetDebugFile,"\tStandardInterruptConditionsMet: FAILING because PassedLastInterrupt %d(%s)\n",
 			pSoldier->guynum,ExtMen[pSoldier->guynum].name);
 #endif
 
-//		return(FALSE);
+		return(FALSE);
 	}
 
 
@@ -1872,6 +1884,15 @@ INT8 CalcInterruptDuelPts( SOLDIERTYPE * pSoldier, SoldierID ubOpponentID, BOOLE
 			iPoints=(iPoints + cWeaponReadyBonus);
 			
 		}
+	}
+
+	// sevenfm (ported): a raised (ready) weapon gives +1 if already facing the opponent, else -1; skipped for tanks/robots
+	if (!TANK(pSoldier) && !AM_A_ROBOT(pSoldier) && WeaponReady(pSoldier))
+	{
+		if (AIDirection(pSoldier->sGridNo, ubOpponentID->sGridNo) == pSoldier->ubDirection)
+			iPoints++;
+		else
+			iPoints--;
 	}
 
 	// if soldier is still in shock from recent injuries, that penalizes him

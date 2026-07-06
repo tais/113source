@@ -5031,6 +5031,12 @@ BOOLEAN NewOKDestination( SOLDIERTYPE * pCurrSoldier, INT32 sGridNo, BOOLEAN fPe
     INT16 sDesiredLevel;
     BOOLEAN fOKCheckStruct;
 
+    // sevenfm (ported): safety check
+    if ( TileIsOutOfBounds( sGridNo ) )
+    {
+        return( FALSE );
+    }
+
     // Allow civilians and NPCs with profile to go off screen, and also enemies if tactical retreat is enabled
     auto destinationOffscreen = !(GridNoOnVisibleWorldTile(sGridNo));
     auto hasProfile = pCurrSoldier->ubProfile != NO_PROFILE;
@@ -5177,6 +5183,12 @@ static INT16 NewOKDestinationAndDirection( SOLDIERTYPE * pCurrSoldier, INT32 sGr
     STRUCTURE *pStructure;
     INT16 sDesiredLevel;
     BOOLEAN fOKCheckStruct;
+
+    // sevenfm (ported): safety check
+    if ( TileIsOutOfBounds( sGridNo ) )
+    {
+        return( FALSE );
+    }
 
     if (fPeopleToo && ( bPerson = WhoIsThere2( sGridNo, bLevel ) ) != NOBODY )
     {

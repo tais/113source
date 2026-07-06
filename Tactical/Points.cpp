@@ -1038,7 +1038,12 @@ void DeductPoints( SOLDIERTYPE *pSoldier, INT16 sAPCost, INT32 iBPCost, UINT8 ub
 				if ( ubPointsRegistered )
 				{
 					pOpponent->aiData.ubInterruptCounter[pSoldier->ubID] += ubPointsRegistered;
-					fFoundInterrupter = TRUE;
+					// sevenfm (ported): no interrupts on hearing in IIS; the AP counter still accrues on hearing above,
+					// but only a currently-SEEN mover actually grants an interrupt
+					if (pOpponent->aiData.bOppList[pSoldier->ubID] == SEEN_CURRENTLY)
+					{
+						fFoundInterrupter = TRUE;
+					}
 				}
 			}	
 		}

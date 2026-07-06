@@ -2580,6 +2580,11 @@ void LoadGameExternalOptions()
 	gGameExternalOptions.fAIPathTweaks = iniReader.ReadBoolean("Tactical AI Settings", "AI_PATH_TWEAKS", TRUE);
 	gGameExternalOptions.fAIShootUnseen = iniReader.ReadBoolean("Tactical AI Settings", "AI_SHOOT_UNSEEN", FALSE);
 	gGameExternalOptions.fAISafeSuppression = iniReader.ReadBoolean("Tactical AI Settings", "AI_SAFE_SUPPRESSION", TRUE);
+	// sevenfm (ported): distance-capped OCTH aim levels (consumed in AllowedAimingLevels, Items.cpp)
+	gGameExternalOptions.fImprovedAimLevels = iniReader.ReadBoolean("Tactical AI Settings", "IMPROVED_AIM_LEVELS", TRUE);
+	// sevenfm (ported): AI debug logging toggles (no consumer in trunk yet - see notes)
+	gGameExternalOptions.fAIDecisionInfo = iniReader.ReadBoolean("Tactical AI Settings", "AI_DECISION_INFO", FALSE);
+	gGameExternalOptions.fAIDebugInfo = iniReader.ReadBoolean("Tactical AI Settings", "AI_DEBUG_INFO", FALSE);
 
 	// Mini Events
 	gGameExternalOptions.fMiniEventsEnabled = iniReader.ReadBoolean("Mini Events Settings", "MINI_EVENTS_ENABLED", FALSE);

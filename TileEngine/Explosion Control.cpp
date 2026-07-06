@@ -5445,6 +5445,9 @@ void FireFragments( SoldierID ubOwner, INT16 sX, INT16 sY, INT16 sZ, UINT16 usIt
 	INT32 gridno = GETWORLDINDEXFROMWORLDCOORDS( sY, sX );
 	UINT32 z_offset = CONVERT_PIXELS_TO_HEIGHTUNITS( gpWorldLevelData[gridno].sHeight );
 
+	// sevenfm (ported): for maps with sZ == -1, move to zero level
+	sZ = max(0, sZ);
+
 	for (UINT16 x = 0; x < usNumFragments; ++x)
 	{
 		FLOAT dRandomX = 0;
@@ -5514,6 +5517,12 @@ void FireFragments( SoldierID ubOwner, INT16 sX, INT16 sY, INT16 sZ, UINT16 usIt
 		FLOAT dEndX = (FLOAT)(sX + (dDeltaX * dRangeMultiplier));
 		FLOAT dEndY = (FLOAT)(sY + (dDeltaY * dRangeMultiplier));
 		FLOAT dEndZ = (FLOAT)(sZ + (dDeltaZ * dRangeMultiplier));
+
+		// sevenfm (ported): for explosions on the ground, don't send fragments down into the ground
+		if (sZ <= 0 && dEndZ < 0)
+		{
+			dEndZ = -dEndZ;
+		}
 
 		// Add some randomness to the start coordinates as well, so that not all fragments fly from the same point
 		// in space.

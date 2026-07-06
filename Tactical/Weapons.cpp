@@ -1591,6 +1591,9 @@ BOOLEAN FireWeapon( SOLDIERTYPE *pSoldier , INT32 sTargetGridNo )
 	if ( pSoldier->bWeaponMode == WM_ATTACHED_BAYONET )
 		usItemClass = IC_BLADE;
 
+	// sevenfm (ported): set flag indicating that soldier attacked this turn
+	pSoldier->usSoldierFlagMask2 |= SOLDIER_ATTACKED_THIS_TURN;
+
 	switch( usItemClass )
 	{
 		case IC_THROWING_KNIFE:
@@ -1733,33 +1736,17 @@ void GetTargetWorldPositions( SOLDIERTYPE *pSoldier, INT32 sTargetGridNo, FLOAT 
 		dTargetY = (FLOAT) sY;
 		if (pSoldier->bAimShotLocation == AIM_SHOT_RANDOM)
 		{
-			uiRoll = PreRandom( 100 );
-			if (uiRoll < 15)
-			{
-				pSoldier->bAimShotLocation = AIM_SHOT_LEGS;
-			}
-			else if (uiRoll > 94)
+			// sevenfm (ported): always attack torso as this function can be called from different places with different results
+			pSoldier->bAimShotLocation = AIM_SHOT_TORSO;
+
+			UINT32 uiCTGT_Torso = SoldierToSoldierBodyPartChanceToGetThrough( pSoldier, pTargetSoldier, AIM_SHOT_TORSO );
+			UINT32 uiCTGT_Head = SoldierToSoldierBodyPartChanceToGetThrough( pSoldier, pTargetSoldier, AIM_SHOT_HEAD );
+
+			// sevenfm (ported): upgrade to head only if head shot has clearly more chance to get through
+			if ( uiCTGT_Torso < 25 && uiCTGT_Head > uiCTGT_Torso * 2 )
 			{
 				pSoldier->bAimShotLocation = AIM_SHOT_HEAD;
 			}
-			else
-			{
-				pSoldier->bAimShotLocation = AIM_SHOT_TORSO;
-			}
-			if ( pSoldier->bAimShotLocation != AIM_SHOT_HEAD )
-			{
-				UINT32 uiChanceToGetThrough = SoldierToSoldierBodyPartChanceToGetThrough( pSoldier, pTargetSoldier, pSoldier->bAimShotLocation );
-
-				if ( uiChanceToGetThrough < 25 )
-				{
-					if ( SoldierToSoldierBodyPartChanceToGetThrough( pSoldier, pTargetSoldier, AIM_SHOT_HEAD ) > uiChanceToGetThrough * 2 )
-					{
-						// try for a head shot then
-						pSoldier->bAimShotLocation = AIM_SHOT_HEAD;
-					}
-				}
-			}
-
 		}
 
 		switch( pSoldier->bAimShotLocation )

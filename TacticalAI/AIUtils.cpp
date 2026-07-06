@@ -5338,50 +5338,30 @@ BOOLEAN AICanInterrupt( SOLDIERTYPE *pSoldier )
 {
 	CHECKF(pSoldier);
 
-	// must be an active soldier that is in the sector
+	// defensive prelude (kept from the prior reconstruction): sevenfm's member CanInterrupt() is only ever
+	// invoked on in-sector soldiers, so this changes nothing for real callers but guards the sGridNo/DeepWater
+	// access below against a stale, out-of-sector soldier
 	if (!pSoldier->bActive || !pSoldier->bInSector)
 	{
 		return FALSE;
 	}
 
-	// soldiers below OKLIFE can't perform any actions
-	if (pSoldier->stats.bLife < OKLIFE)
-	{
-		return FALSE;
-	}
-
-	// out of breath (about to fall over) or already collapsed
-	if (pSoldier->bBreath < OKBREATH || pSoldier->bCollapsed)
-	{
-		return FALSE;
-	}
-
-	// not enough APs left to react
-	if (pSoldier->bActionPoints < APBPConstants[MIN_APS_TO_INTERRUPT])
-	{
-		return FALSE;
-	}
-
-	// gassed soldiers are too busy holding their cookies down
-	if (pSoldier->flags.uiStatusFlags & SOLDIER_GASSED)
-	{
-		return FALSE;
-	}
-
-	// a soldier already fighting for his life is too busy surviving to get the jump on new threats
-	if (pSoldier->aiData.bUnderFire)
-	{
-		return FALSE;
-	}
-
-	// neutral folks never get interrupts
-	if (pSoldier->aiData.bNeutral)
-	{
-		return FALSE;
-	}
-
-	// no (non-robot) EPCs
-	if (AM_AN_EPC(pSoldier) && !AM_A_ROBOT(pSoldier))
+	// sevenfm (ported): real SOLDIERTYPE::CanInterrupt() body (vr Soldier Control.cpp:18797), adapted to trunk
+	// symbols. IsGassed()/IsCovert()/IsPOW() have no trunk method, so they are inlined to their flag tests; the
+	// SOLDIER_COUNTER_WATCH clause is DROPPED (that counter does not exist in trunk).
+	if (pSoldier->stats.bLife < OKLIFE ||
+		pSoldier->bBreath < OKBREATH ||
+		pSoldier->bActionPoints < APBPConstants[MIN_APS_TO_INTERRUPT] ||
+		pSoldier->bCollapsed ||
+		pSoldier->bBreathCollapsed ||
+		(pSoldier->flags.uiStatusFlags & SOLDIER_GASSED) ||
+		pSoldier->IsCowering() ||
+		CoweringShockLevel(pSoldier) ||
+		pSoldier->aiData.bUnderFire == 2 ||
+		pSoldier->usSkillCounter[SOLDIER_COUNTER_SPOTTER] > 0 ||
+		(pSoldier->usSoldierFlagMask & (SOLDIER_COVERT_CIV | SOLDIER_COVERT_SOLDIER)) ||
+		(pSoldier->usSoldierFlagMask & SOLDIER_POW) ||
+		DeepWater(pSoldier->sGridNo, pSoldier->pathing.bLevel))
 	{
 		return FALSE;
 	}

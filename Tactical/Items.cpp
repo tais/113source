@@ -13922,6 +13922,20 @@ UINT8 AllowedAimingLevels(SOLDIERTYPE * pSoldier, INT32 sGridNo)
 		}
 	}
 
+	// sevenfm (ported): IMPROVED_AIM_LEVELS - limit OCTH aim levels by distance to target
+	if ( gGameExternalOptions.fImprovedAimLevels )
+	{
+		INT16 sNormalDistance = DAY_VISION_RANGE;
+		if ( PythSpacesAway( pSoldier->sGridNo, sGridNo ) <= sNormalDistance / 2 )
+		{
+			aimLevels = __min( 4, aimLevels );
+		}
+		else
+		{
+			aimLevels = __min( 4 * PythSpacesAway( pSoldier->sGridNo, sGridNo ) / (sNormalDistance / 2), aimLevels );
+		}
+	}
+
 	//CHRISL: Make sure we always limit to the proper number of aim clicks
 	aimLevels = __max(1, aimLevels);
 	aimLevels = __min(8, aimLevels);

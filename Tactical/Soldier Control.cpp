@@ -7696,6 +7696,7 @@ void SOLDIERTYPE::EVENT_BeginMercTurn( BOOLEAN fFromRealTime, INT32 iRealTimeCou
 	// sevenfm: reset AI flags
 	this->usSoldierFlagMask2 &= ~SOLDIER_BACK_ATTACK;
 	this->usSoldierFlagMask2 &= ~SOLDIER_SNEAK_ATTACK;
+	this->usSoldierFlagMask2 &= ~SOLDIER_ATTACKED_THIS_TURN;		// sevenfm (ported)
 
 	// Flugente: reset extra stats. Currently they only depend on drug effects, and those are reset every turn
 	this->ResetExtraStats( );
@@ -8003,6 +8004,10 @@ void SOLDIERTYPE::EVENT_BeginMercTurn( BOOLEAN fFromRealTime, INT32 iRealTimeCou
 			this->aiData.bPassedLastInterrupt = FALSE;
 		}
 	}
+
+	// sevenfm (ported): always reset bPassedLastInterrupt at the start of a new turn (even at 0 AP),
+	// so a soldier who ended last turn with no APs does not carry a stale 'passed' flag into this turn
+	this->aiData.bPassedLastInterrupt = FALSE;
 
 	// HEADROCK HAM 4: Store this soldier's X/Y cell coordinates into his SOLDIERTYPE data.
 	INT16 sStartPosX = 0;
@@ -24869,8 +24874,9 @@ BOOLEAN ResolvePendingInterrupt( SOLDIERTYPE * pSoldier, UINT8 ubInterruptType )
 			/////////////////////////////////////////////////////////////
 
 			// set base value ( interrupt per every X APs an enemy uses )
-			// if not seen but just heard... we interrupt only if they attack us (or if they are very close) in that case
-			if ( (pInterrupter->aiData.bOppList[pSoldier->ubID] == SEEN_CURRENTLY) || (pInterrupter->aiData.bOppList[pSoldier->ubID] == HEARD_THIS_TURN && (ubInterruptType == AFTERSHOT_INTERRUPT || ubInterruptType == AFTERACTION_INTERRUPT || PythSpacesAway( pInterrupter->sGridNo, pSoldier->sGridNo ) < 3)) )
+			// sevenfm (ported): only currently-seen targets grant an interrupt (heard-only interrupts removed,
+			// including the old aftershot/afteraction/close-range hearing exception)
+			if (pInterrupter->aiData.bOppList[pSoldier->ubID] == SEEN_CURRENTLY)
 			{
 				uiReactionTime = gGameExternalOptions.ubBasicReactionTimeLengthIIS;
 			}
