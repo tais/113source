@@ -36,6 +36,7 @@
 #include "BinaryHeap.hpp"
 #include "opplist.h"
 #include "Weapons.h"
+#include "Items.h"	// sevenfm (ported): GetWornStealth() for enemy sneak-pathing
 
 //forward declarations of common classes to eliminate includes
 class OBJECTTYPE;
@@ -2153,6 +2154,106 @@ void ShutDownPathAI(void)
 ///////////////////////////////////////////////////////////////////////
 //	FINDBESTPATH													/
 ////////////////////////////////////////////////////////////////////////
+// sevenfm (ported): terrain-class test for camo-aware enemy pathing
+static BOOLEAN PathAI_TerrainJungle(INT32 sSpot, INT8 bLevel)
+{
+	if (TileIsOutOfBounds(sSpot))
+		return FALSE;
+
+	UINT8 ubTerrainType = GetTerrainTypeForGrid(sSpot, bLevel);
+	if (ubTerrainType == LOW_GRASS || ubTerrainType == HIGH_GRASS || ubTerrainType == FLAT_GROUND)
+		return TRUE;
+
+	return FALSE;
+}
+
+// sevenfm (ported): terrain-class test for camo-aware enemy pathing
+static BOOLEAN PathAI_TerrainDesert(INT32 sSpot, INT8 bLevel)
+{
+	if (TileIsOutOfBounds(sSpot))
+		return FALSE;
+
+	UINT8 ubTerrainType = GetTerrainTypeForGrid(sSpot, bLevel);
+	if (ubTerrainType == DIRT_ROAD || ubTerrainType == TRAIN_TRACKS || ubTerrainType == FLAT_GROUND)
+		return TRUE;
+
+	return FALSE;
+}
+
+// sevenfm (ported): terrain-class test for camo-aware enemy pathing
+static BOOLEAN PathAI_TerrainUrban(INT32 sSpot, INT8 bLevel)
+{
+	if (TileIsOutOfBounds(sSpot))
+		return FALSE;
+
+	UINT8 ubTerrainType = GetTerrainTypeForGrid(sSpot, bLevel);
+	if (ubTerrainType == FLAT_FLOOR || ubTerrainType == PAVED_ROAD)
+		return TRUE;
+
+	return FALSE;
+}
+
+// sevenfm (ported): TRUE if a tall structure to the north casts a shadow onto this spot
+static BOOLEAN PathAI_FindShadowAtSpot(INT32 sSpot, INT8 bLevel)
+{
+	if (TileIsOutOfBounds(sSpot))
+		return FALSE;
+
+	INT32 sNewGridNo = NewGridNo(sSpot, (UINT16)DirectionInc(NORTH));
+	if (sNewGridNo != sSpot)
+	{
+		STRUCTURE* pStructure = gpWorldLevelData[sNewGridNo].pStructureHead;
+
+		if (pStructure != NULL && StructureHeight(pStructure) > 1)
+		{
+			LEVELNODE* pShadowNode = NULL;
+
+			if (!(pStructure->fFlags & STRUCTURE_BASE_TILE))
+			{
+				STRUCTURE* pBaseStructure = FindBaseStructure(pStructure);
+				if (pBaseStructure != NULL)
+					pShadowNode = gpWorldLevelData[pBaseStructure->sGridNo].pShadowHead;
+			}
+			else
+			{
+				pShadowNode = gpWorldLevelData[sNewGridNo].pShadowHead;
+			}
+
+			if (pShadowNode != NULL)
+				return TRUE;
+		}
+	}
+
+	return FALSE;
+}
+
+// sevenfm (ported): count blocked / non-sittable adjacent tiles (0 => open, no cover nearby)
+static UINT8 PathAI_CountObstaclesNearSpot(INT32 sSpot, INT8 bLevel)
+{
+	if (TileIsOutOfBounds(sSpot))
+		return 0;
+
+	UINT8	ubMovementCost;
+	INT32	sTempGridNo;
+	UINT8	ubDirection;
+	UINT8	ubCount = 0;
+
+	for (ubDirection = 0; ubDirection < NUM_WORLD_DIRECTIONS; ++ubDirection)
+	{
+		sTempGridNo = NewGridNo(sSpot, DirectionInc(ubDirection));
+
+		if (sTempGridNo != sSpot)
+		{
+			ubMovementCost = gubWorldMovementCosts[sTempGridNo][ubDirection][bLevel];
+
+			if (ubMovementCost >= TRAVELCOST_BLOCKED || !IsLocationSittableExcludingPeople(sTempGridNo, bLevel))
+				++ubCount;
+		}
+	}
+
+	return ubCount;
+}
+
 INT32 FindBestPath(SOLDIERTYPE *s , INT32 sDestination, INT8 bLevel, INT16 usMovementMode, INT8 bCopy, UINT8 fFlags )
 {
 	s->sPlotSrcGrid = s->sGridNo;
@@ -2308,6 +2409,26 @@ if(!GridNoOnVisibleWorldTile(iDestination))
 	fTurnBased = ( (gTacticalStatus.uiFlags & TURNBASED) && (gTacticalStatus.uiFlags & INCOMBAT) );
 
 	fPathingForPlayer = ( (s->bTeam == gbPlayerNum) && (!gTacticalStatus.fAutoBandageMode) && !(s->flags.uiStatusFlags & SOLDIER_PCUNDERAICONTROL) );
+
+	// sevenfm (ported, PORT-VARIANT): enemy sneak-pathing state (dangerous-direction/flanking penalty dropped)
+	BOOLEAN fSneaking = FALSE;
+	BOOLEAN fWornStealth = FALSE;
+
+	if (s->bTeam == ENEMY_TEAM &&
+		IS_MERC_BODY_TYPE(s) &&
+		s->aiData.bAlertStatus >= STATUS_RED &&
+		!(s->flags.uiStatusFlags & SOLDIER_BOXER) &&
+		s->aiData.bOrders != STATIONARY &&
+		s->aiData.bOrders != SNIPER &&
+		(s->aiData.bAttitude == CUNNINGSOLO || s->aiData.bAttitude == CUNNINGAID || s->aiData.bAttitude == DEFENSIVE || s->numFlanks == MAX_FLANKS_RED || s->aiData.bAIMorale < MORALE_FEARLESS))
+	{
+		fSneaking = TRUE;
+
+		if (GetWornStealth(s) >= 65)
+		{
+			fWornStealth = TRUE;
+		}
+	}
 
 	// Flugente: nonswimmers are those who are not mercs and not boats
 	fNonSwimmer = !(IS_MERC_BODY_TYPE( s ) );
@@ -3543,6 +3664,36 @@ if(!GridNoOnVisibleWorldTile(iDestination))
 						(InLightAtNight(newLoc, bLevel) || GetNearestRottingCorpseAIWarning(newLoc) > 0))
 					{
 						nextCost += 20;
+					}
+					// sevenfm (ported, PORT-VARIANT): steer sneaking enemies toward camo/shadow/cover tiles
+					else if (s->bTeam == ENEMY_TEAM &&
+						s->aiData.bAlertStatus >= STATUS_RED &&
+						fSneaking)
+					{
+						if (s->wornCamo >= 65 && !PathAI_TerrainJungle(newLoc, bLevel))
+						{
+							nextCost += 20;
+						}
+						else if (s->wornDesertCamo >= 65 && !PathAI_TerrainDesert(newLoc, bLevel))
+						{
+							nextCost += 20;
+						}
+						else if (s->wornUrbanCamo >= 65 && !PathAI_TerrainUrban(newLoc, bLevel))
+						{
+							nextCost += 20;
+						}
+						else if (fWornStealth && !PathAI_FindShadowAtSpot(newLoc, bLevel))
+						{
+							nextCost += 20;
+						}
+						else if (!gfTurnBasedAI && usMovementMode <= SWATTING && PathAI_CountObstaclesNearSpot(newLoc, bLevel) == 0)
+						{
+							nextCost += 20;
+						}
+						else if (gfTurnBasedAI && ((usMovementMode == CRAWLING && !ProneSightCoverAtSpot(s, newLoc, FALSE)) || (usMovementMode == SWATTING && !AnyCoverAtSpot(s, newLoc))))
+						{
+							nextCost += 20;
+						}
 					}
 				}
 			}
