@@ -216,3 +216,29 @@ jobs:
         gh release upload "$GITHUB_REF_NAME" ../dist/* --clobber
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # one-off: publish the crash-handler test build (exe + pdb) straight from the runner.
+  debug-release:
+    needs: [ build ]
+    if: github.ref == 'refs/heads/crashlog-debug-build'
+    runs-on: ubuntu-latest
+    steps:
+    - name: Download English ja2 (exe + pdb)
+      uses: actions/download-artifact@v4
+      with:
+        name: English_ja2
+        path: dbg
+    - name: Publish crashlog debug prerelease
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        set -eux
+        ls -la dbg
+        gh release delete debug-crashlog --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes || true
+        sleep 5
+        gh release create debug-crashlog dbg/* \
+          --repo "$GITHUB_REPOSITORY" \
+          --target "$GITHUB_SHA" \
+          --title "debug-crashlog - crash handler test build (RelWithDebInfo, exe + pdb)" \
+          --notes "Test build of the crash-handler PR (#11) on current master. On a crash it writes CrashLog_<pid>.txt + CrashDump_<pid>.dmp to the game folder. Drop JA2_ENGLISH.exe AND keep JA2_ENGLISH.pdb beside it (needed for symbolic stacks), reproduce the crash, then check the game folder for the two files." \
+          --prerelease
