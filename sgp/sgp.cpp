@@ -3,6 +3,12 @@
 #include "builddefines.h"
 #include "types.h"
 #include <windows.h>
+#include <dbghelp.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <signal.h>
+#include <wchar.h>
 #include <string.h>
 #include "sgp.h"
 #include "vobject.h"
@@ -681,8 +687,255 @@ private:
 //	}
 //};
 
+//======================================================================================================
+// Crash handler
+//
+// The shipped build has no crash reporting: the __try/__except around HandledWinMain is behind
+// ENABLE_EXCEPTION_HANDLING, which is never defined, so an unhandled exception just terminates the
+// process with no information. This installs a top-level unhandled-exception filter that, on any
+// crash, writes a readable CrashLog_<pid>.txt plus a CrashDump_<pid>.dmp minidump into the game
+// folder. Open the .dmp with the matching ja2.pdb in Visual Studio / WinDbg for a full symbolic
+// stack; the .txt gives immediate info (exception, faulting module+offset, stack) without a debugger.
+//======================================================================================================
+extern "C" { extern char czVersionString[16]; }   // build version string, GameVersion.cpp
+
+static WCHAR gzCrashDir[ MAX_PATH ] = L"";   // game folder, captured at install time
+
+static const char* SGPExceptionName( DWORD code )
+{
+	switch ( code )
+	{
+		case EXCEPTION_ACCESS_VIOLATION:         return "ACCESS_VIOLATION";
+		case EXCEPTION_ARRAY_BOUNDS_EXCEEDED:    return "ARRAY_BOUNDS_EXCEEDED";
+		case EXCEPTION_DATATYPE_MISALIGNMENT:    return "DATATYPE_MISALIGNMENT";
+		case EXCEPTION_FLT_DIVIDE_BY_ZERO:       return "FLT_DIVIDE_BY_ZERO";
+		case EXCEPTION_ILLEGAL_INSTRUCTION:      return "ILLEGAL_INSTRUCTION";
+		case EXCEPTION_IN_PAGE_ERROR:            return "IN_PAGE_ERROR";
+		case EXCEPTION_INT_DIVIDE_BY_ZERO:       return "INT_DIVIDE_BY_ZERO";
+		case EXCEPTION_PRIV_INSTRUCTION:         return "PRIV_INSTRUCTION";
+		case EXCEPTION_STACK_OVERFLOW:           return "STACK_OVERFLOW";
+		case EXCEPTION_NONCONTINUABLE_EXCEPTION: return "NONCONTINUABLE";
+		default:                                 return "UNKNOWN";
+	}
+}
+
+// Resolve the short module name (e.g. "ja2.exe") that owns address 'addr'. Uses DbgHelp, no PSAPI.
+static void SGPCrashModuleName( DWORD64 addr, char* out, size_t cch )
+{
+	strncpy( out, "?", cch ); out[ cch - 1 ] = 0;
+	DWORD64 base = SymGetModuleBase64( GetCurrentProcess(), addr );
+	if ( base )
+	{
+		char full[ MAX_PATH ];
+		if ( GetModuleFileNameA( (HMODULE)(DWORD_PTR)base, full, sizeof( full ) ) )
+		{
+			const char* b = strrchr( full, '\\' );
+			strncpy( out, b ? b + 1 : full, cch ); out[ cch - 1 ] = 0;
+		}
+	}
+}
+
+static void SGPCrashWrite( HANDLE h, const char* s )
+{
+	DWORD w; WriteFile( h, s, (DWORD)strlen( s ), &w, NULL );
+}
+
+static void SGPWriteMiniDump( EXCEPTION_POINTERS* pEP )
+{
+	WCHAR path[ MAX_PATH ];
+	_snwprintf( path, _countof( path ), L"%sCrashDump_%lu.dmp", gzCrashDir, GetCurrentProcessId() );
+	path[ _countof( path ) - 1 ] = 0;
+
+	HANDLE hFile = CreateFileW( path, GENERIC_WRITE, FILE_SHARE_READ, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL );
+	if ( hFile == INVALID_HANDLE_VALUE ) return;
+
+	MINIDUMP_EXCEPTION_INFORMATION mei;
+	mei.ThreadId          = GetCurrentThreadId();
+	mei.ExceptionPointers = pEP;
+	mei.ClientPointers    = FALSE;
+
+	MINIDUMP_TYPE type = (MINIDUMP_TYPE)( MiniDumpWithDataSegs | MiniDumpWithHandleData
+		| MiniDumpWithThreadInfo | MiniDumpWithUnloadedModules | MiniDumpWithIndirectlyReferencedMemory );
+
+	MiniDumpWriteDump( GetCurrentProcess(), GetCurrentProcessId(), hFile, type, pEP ? &mei : NULL, NULL, NULL );
+	CloseHandle( hFile );
+}
+
+static void SGPWriteCrashLog( EXCEPTION_POINTERS* pEP )
+{
+	WCHAR path[ MAX_PATH ];
+	_snwprintf( path, _countof( path ), L"%sCrashLog_%lu.txt", gzCrashDir, GetCurrentProcessId() );
+	path[ _countof( path ) - 1 ] = 0;
+
+	HANDLE h = CreateFileW( path, GENERIC_WRITE, FILE_SHARE_READ, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL );
+	if ( h == INVALID_HANDLE_VALUE ) return;
+
+	char line[ 1024 ];
+	SYSTEMTIME st; GetLocalTime( &st );
+	_snprintf( line, sizeof( line ),
+		"JA2 1.13 crash report\r\nVersion : %s\r\nTime    : %04u-%02u-%02u %02u:%02u:%02u\r\n\r\n",
+		czVersionString, st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond );
+	line[ sizeof( line ) - 1 ] = 0; SGPCrashWrite( h, line );
+
+	if ( pEP && pEP->ExceptionRecord )
+	{
+		EXCEPTION_RECORD* er = pEP->ExceptionRecord;
+		DWORD64 pc   = (DWORD64)(DWORD_PTR)er->ExceptionAddress;
+		DWORD64 base = SymGetModuleBase64( GetCurrentProcess(), pc );
+		char mod[ MAX_PATH ]; SGPCrashModuleName( pc, mod, sizeof( mod ) );
+
+		_snprintf( line, sizeof( line ),
+			"Exception : 0x%08lX (%s)\r\nAddress   : 0x%p\r\nModule    : %s + 0x%I64X\r\n",
+			er->ExceptionCode, SGPExceptionName( er->ExceptionCode ),
+			er->ExceptionAddress, mod, base ? pc - base : pc );
+		line[ sizeof( line ) - 1 ] = 0; SGPCrashWrite( h, line );
+
+		if ( er->ExceptionCode == EXCEPTION_ACCESS_VIOLATION && er->NumberParameters >= 2 )
+		{
+			_snprintf( line, sizeof( line ), "Accessing : %s 0x%p\r\n",
+				er->ExceptionInformation[ 0 ] ? "write to" : "read from",
+				(void*)er->ExceptionInformation[ 1 ] );
+			line[ sizeof( line ) - 1 ] = 0; SGPCrashWrite( h, line );
+		}
+	}
+
+	SGPCrashWrite( h, "\r\nCall stack (open the .dmp with ja2.pdb for full symbols):\r\n" );
+	if ( pEP && pEP->ContextRecord )
+	{
+		HANDLE hProc = GetCurrentProcess(), hThr = GetCurrentThread();
+		CONTEXT ctx = *pEP->ContextRecord;   // StackWalk64 mutates the context - use a copy
+		STACKFRAME64 sf; memset( &sf, 0, sizeof( sf ) );
+		DWORD machine = 0;
+#if defined(_M_IX86)
+		machine = IMAGE_FILE_MACHINE_I386;
+		sf.AddrPC.Offset = ctx.Eip; sf.AddrFrame.Offset = ctx.Ebp; sf.AddrStack.Offset = ctx.Esp;
+#elif defined(_M_X64)
+		machine = IMAGE_FILE_MACHINE_AMD64;
+		sf.AddrPC.Offset = ctx.Rip; sf.AddrFrame.Offset = ctx.Rbp; sf.AddrStack.Offset = ctx.Rsp;
+#endif
+		sf.AddrPC.Mode = sf.AddrFrame.Mode = sf.AddrStack.Mode = AddrModeFlat;
+
+		for ( int i = 0; machine && i < 48; ++i )
+		{
+			if ( !StackWalk64( machine, hProc, hThr, &sf, &ctx, NULL,
+					SymFunctionTableAccess64, SymGetModuleBase64, NULL ) || sf.AddrPC.Offset == 0 )
+				break;
+
+			DWORD64 pc = sf.AddrPC.Offset;
+			char mod[ 64 ]; SGPCrashModuleName( pc, mod, sizeof( mod ) );
+
+			ULONG64 symBuf[ ( sizeof( SYMBOL_INFO ) + 256 ) / sizeof( ULONG64 ) + 1 ]; memset( symBuf, 0, sizeof( symBuf ) );
+			SYMBOL_INFO* sym = (SYMBOL_INFO*)symBuf;   // ULONG64 array => 8-byte aligned
+			sym->SizeOfStruct = sizeof( SYMBOL_INFO ); sym->MaxNameLen = 255;
+			DWORD64 disp = 0; BOOL hasSym = SymFromAddr( hProc, pc, &disp, sym );
+
+			IMAGEHLP_LINE64 il; memset( &il, 0, sizeof( il ) ); il.SizeOfStruct = sizeof( il );
+			DWORD lineDisp = 0; BOOL hasLine = SymGetLineFromAddr64( hProc, pc, &lineDisp, &il );
+			DWORD64 base = SymGetModuleBase64( hProc, pc );
+
+			if ( hasSym && hasLine )
+				_snprintf( line, sizeof( line ), "  %-14s %s + 0x%lX  (%s:%lu)\r\n", mod, sym->Name, (DWORD)disp, il.FileName, il.LineNumber );
+			else if ( hasSym )
+				_snprintf( line, sizeof( line ), "  %-14s %s + 0x%lX\r\n", mod, sym->Name, (DWORD)disp );
+			else
+				_snprintf( line, sizeof( line ), "  %-14s 0x%p  (%s + 0x%I64X)\r\n", mod, (void*)(DWORD_PTR)pc, mod, base ? pc - base : pc );
+			line[ sizeof( line ) - 1 ] = 0; SGPCrashWrite( h, line );
+		}
+	}
+
+	CloseHandle( h );
+}
+
+static LONG WINAPI SGPTopLevelExceptionFilter( EXCEPTION_POINTERS* pEP )
+{
+	static LONG s_in = 0;
+	if ( InterlockedExchange( &s_in, 1 ) != 0 ) return EXCEPTION_EXECUTE_HANDLER;   // double-fault guard
+
+	// Write the minidump FIRST, before any DbgHelp Sym* call. MiniDumpWriteDump needs no symbols,
+	// whereas SymInitialize(TRUE) walks the (possibly corrupt or locked) loader module list - so
+	// doing the dump first guarantees we still capture it even if symbol init faults or hangs.
+	__try { SGPWriteMiniDump( pEP ); } __except ( EXCEPTION_EXECUTE_HANDLER ) {}
+
+	__try
+	{
+		SymSetOptions( SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS | SYMOPT_LOAD_LINES );
+		SymInitialize( GetCurrentProcess(), NULL, TRUE );
+		SGPWriteCrashLog( pEP );
+	}
+	__except ( EXCEPTION_EXECUTE_HANDLER ) {}
+
+	WCHAR msg[ 600 ];
+	_snwprintf( msg, _countof( msg ),
+		L"Jagged Alliance 2 has crashed.\n\nA crash report was written to the game folder:\n%s\n\n"
+		L"  CrashLog_<pid>.txt  - readable summary\n  CrashDump_<pid>.dmp - full dump (open with ja2.pdb)\n\n"
+		L"Please attach BOTH files when reporting this crash.", gzCrashDir );
+	msg[ _countof( msg ) - 1 ] = 0;
+	MessageBoxW( NULL, msg, L"JA2 1.13 - Crash", MB_OK | MB_ICONERROR | MB_TOPMOST | MB_SETFOREGROUND );
+
+	return EXCEPTION_EXECUTE_HANDLER;   // let the process terminate
+}
+
+// Route CRT-fatal paths that bypass the SEH filter (pure-virtual call, invalid CRT parameter,
+// abort()/SIGABRT - which is also where an unhandled C++ std::terminate ends up) through the same
+// crash-dump writer, capturing the live thread context so the dump/log show where it happened.
+static void SGPReportFatal( void )
+{
+	CONTEXT ctx;
+	memset( &ctx, 0, sizeof( ctx ) );
+	ctx.ContextFlags = CONTEXT_FULL;
+	RtlCaptureContext( &ctx );
+
+	EXCEPTION_RECORD er;
+	memset( &er, 0, sizeof( er ) );
+	er.ExceptionCode = 0xE0000001;   // synthetic "fatal CRT" marker
+#if defined(_M_IX86)
+	er.ExceptionAddress = (PVOID)(DWORD_PTR)ctx.Eip;
+#elif defined(_M_X64)
+	er.ExceptionAddress = (PVOID)(DWORD_PTR)ctx.Rip;
+#endif
+
+	EXCEPTION_POINTERS ep;
+	ep.ExceptionRecord = &er;
+	ep.ContextRecord   = &ctx;
+	SGPTopLevelExceptionFilter( &ep );
+	TerminateProcess( GetCurrentProcess(), 3 );
+}
+
+static void __cdecl SGPPureCallHandler( void ) { SGPReportFatal(); }
+static void __cdecl SGPInvalidParameterHandler( const wchar_t*, const wchar_t*, const wchar_t*, unsigned int, uintptr_t ) { SGPReportFatal(); }
+static void __cdecl SGPAbortSignalHandler( int ) { SGPReportFatal(); }
+
+static void InstallCrashHandler( void )
+{
+	// Capture the game folder (the exe's directory, with trailing backslash) while the process is healthy.
+	GetModuleFileNameW( NULL, gzCrashDir, _countof( gzCrashDir ) );
+	WCHAR* slash = wcsrchr( gzCrashDir, L'\\' );
+	if ( slash ) slash[ 1 ] = 0; else gzCrashDir[ 0 ] = 0;
+
+	// Reserve stack so the handler can still run (and write the report) on a stack-overflow crash.
+	// Resolved dynamically: SetThreadStackGuarantee is Vista+ and the build may use XP-era headers.
+	typedef BOOL ( WINAPI *SetThreadStackGuaranteeFn )( PULONG );
+	HMODULE hK32 = GetModuleHandleW( L"kernel32.dll" );
+	SetThreadStackGuaranteeFn pSetGuarantee = hK32 ? (SetThreadStackGuaranteeFn)GetProcAddress( hK32, "SetThreadStackGuarantee" ) : NULL;
+	if ( pSetGuarantee )
+	{
+		ULONG stackGuarantee = 65536;
+		pSetGuarantee( &stackGuarantee );
+	}
+
+	// SEH crashes (access violations etc.) - the common case.
+	SetUnhandledExceptionFilter( SGPTopLevelExceptionFilter );
+
+	// CRT-fatal paths that never reach the SEH filter.
+	_set_purecall_handler( SGPPureCallHandler );
+	_set_invalid_parameter_handler( SGPInvalidParameterHandler );
+	signal( SIGABRT, SGPAbortSignalHandler );
+}
+
 int PASCAL WinMain(HINSTANCE hInstance,	HINSTANCE hPrevInstance, LPSTR pCommandLine, int sCommandShow)
 {
+	InstallCrashHandler();
+
 #ifdef _DEBUG
 	// Use this one ONLY if you're having memory corruption issues that can be repeated in a short time
 	// Otherwise it will just run out of memory.
